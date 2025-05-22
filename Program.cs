@@ -1,4 +1,3 @@
-// Program.cs
 namespace FileScanner;
 
 internal static class Program
@@ -7,6 +6,16 @@ internal static class Program
     static void Main()
     {
         ApplicationConfiguration.Initialize();
-        Application.Run(new Form1());
+
+        var host = Host.CreateDefaultBuilder()
+            .ConfigureServices(services =>
+            {
+                services.AddFileScanner();
+                services.AddLogging();
+            })
+            .Build();
+
+        var form = host.Services.GetRequiredService<MainForm>();
+        Application.Run(form);
     }
 }
