@@ -1,4 +1,5 @@
-﻿namespace FileScanner.FileOperations.Services;
+﻿// FileOperations/Services/FileWriter.cs
+namespace FileScanner.FileOperations.Services;
 
 public sealed class FileWriter(
     IOptions<ScannerConfiguration> options,
@@ -7,60 +8,34 @@ public sealed class FileWriter(
     private readonly int _bufferSize = options.Value.BufferSize;
 
     public async Task WriteAsync(
-        string outputFilePath,
+        FilePath outputFilePath,
         IEnumerable<string> contents,
         CancellationToken cancellationToken)
     {
-        ValidateInputParameters(outputFilePath, contents);
+        ArgumentNullException.ThrowIfNull(contents);
 
         try
         {
-            EnsureDirectoryExists(outputFilePath);
             await WriteContentsToFileAsync(outputFilePath, contents, cancellationToken);
-            LogSuccessfulWrite(outputFilePath);
+            logger.LogInformation("Created file: {OutputFile}", Path.GetFileName(outputFilePath.Value));
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            LogWriteError(ex, outputFilePath);
+            logger.LogError(ex, "Error writing file: {File}", outputFilePath.Value);
             throw;
         }
     }
 
-    private static void ValidateInputParameters(string outputFilePath, IEnumerable<string> contents)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(outputFilePath);
-        ArgumentNullException.ThrowIfNull(contents);
-    }
-
-    private static void EnsureDirectoryExists(string filePath)
-    {
-        var directory = Path.GetDirectoryName(filePath);
-        if (!string.IsNullOrEmpty(directory))
-            Directory.CreateDirectory(directory);
-    }
-
     private async Task WriteContentsToFileAsync(
-        string outputFilePath,
+        FilePath filePath,
         IEnumerable<string> contents,
         CancellationToken cancellationToken)
     {
-        await using var stream = CreateFileStream(outputFilePath);
-        await using var writer = CreateStreamWriter(stream);
+        EnsureDirectoryExistsForFile(filePath.Value);
 
-        await WriteLinesToStreamAsync(writer, contents, cancellationToken);
-    }
+        await using var stream = CreateFileStream(filePath.Value);
+        await using var writer = new StreamWriter(stream, Encoding.UTF8, _bufferSize);
 
-    private FileStream CreateFileStream(string outputFilePath) =>
-        new(outputFilePath, FileMode.Create, FileAccess.Write, FileShare.None, _bufferSize, useAsync: true);
-
-    private StreamWriter CreateStreamWriter(FileStream stream) =>
-        new(stream, Encoding.UTF8, _bufferSize);
-
-    private static async Task WriteLinesToStreamAsync(
-        StreamWriter writer,
-        IEnumerable<string> contents,
-        CancellationToken cancellationToken)
-    {
         foreach (var line in contents)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -68,9 +43,18 @@ public sealed class FileWriter(
         }
     }
 
-    private void LogSuccessfulWrite(string outputFilePath) =>
-        logger.LogInformation("Created file: {OutputFile}", Path.GetFileName(outputFilePath));
+    private static void EnsureDirectoryExistsForFile(string filePath)
+    {
+        var directory = Path.GetDirectoryName(filePath);
+        if (directory is not null)
+            Directory.CreateDirectory(directory);
+    }
 
-    private void LogWriteError(Exception ex, string outputFilePath) =>
-        logger.LogError(ex, "Error writing file: {File}", outputFilePath);
+    private FileStream CreateFileStream(string filePath) =>
+        new(filePath,
+            FileMode.Create,
+            FileAccess.Write,
+            FileShare.None,
+            _bufferSize,
+            useAsync: true);
 }

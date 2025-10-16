@@ -1,7 +1,10 @@
-﻿// FileScanner.Core/Interfaces/IOutputFileNameGenerator.cs
+﻿// PathManagement/Interfaces/IOutputFileNameGenerator.cs
 namespace FileScanner.PathManagement.Interfaces;
 
 public interface IOutputFileNameGenerator
 {
-    string GenerateFileName(string directoryPath, string projectRootPath, string fileType);
+    string GenerateFileName(
+        DirectoryPath directoryPath,
+        DirectoryPath projectRootPath,
+        string fileType);
 }

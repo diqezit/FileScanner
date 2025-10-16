@@ -1,7 +1,10 @@
-﻿// FileScanner.Core/Interfaces/IFileScanner.cs
+﻿// Scanning/Interfaces/IFileScanner.cs
 namespace FileScanner.Scanning.Interfaces;
 
 public interface IFileScanner
 {
-    Task ScanAndGenerateAsync(string projectRootDirectory, string outputDirectory, CancellationToken cancellationToken = default);
+    Task<bool> ScanDirectoryAsync(
+        DirectoryPath projectRootDirectory,
+        DirectoryPath outputDirectory,
+        CancellationToken cancellationToken = default);
 }

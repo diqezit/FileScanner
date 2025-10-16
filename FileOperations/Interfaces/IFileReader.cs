@@ -1,9 +1,12 @@
-﻿// FileScanner.Core/Interfaces/IFileReader.cs
+﻿// FileOperations/Interfaces/IFileReader.cs
 namespace FileScanner.FileOperations.Interfaces;
 
 public interface IFileReader
 {
-    Task<FileContent> ReadFileAsync(string filePath, string rootPath, CancellationToken cancellationToken);
+    Task<FileContent> ReadFileAsync(
+        FilePath filePath,
+        DirectoryPath rootPath,
+        CancellationToken cancellationToken);
 }
 
-public record FileContent(string RelativePath, string Content, bool IsSuccess);
+public record FileContent(RelativePath RelativePath, string Content, bool IsSuccess);

@@ -4,6 +4,7 @@ namespace FileScanner.FileOperations.Interfaces;
 public interface IUnifiedFileWriter
 {
     Task WriteUnifiedFileAsync(
-        string outputDirectory,
+        DirectoryPath projectRoot,
+        DirectoryPath outputDirectory,
         CancellationToken cancellationToken);
 }

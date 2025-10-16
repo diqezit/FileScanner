@@ -1,4 +1,5 @@
-﻿namespace FileScanner.FileOperations.Services;
+﻿// FileOperations/Services/FileReader.cs
+namespace FileScanner.FileOperations.Services;
 
 public sealed class FileReader(
     IOptions<ScannerConfiguration> options,
@@ -7,40 +8,68 @@ public sealed class FileReader(
     private readonly int _maxFileSize = options.Value.MaxFileSize;
 
     public async Task<FileContent> ReadFileAsync(
-        string filePath,
-        string rootPath,
+        FilePath filePath,
+        DirectoryPath rootPath,
         CancellationToken cancellationToken)
     {
-        ValidatePaths(filePath, rootPath);
+        var relativePath = new RelativePath(Path.GetRelativePath(rootPath.Value, filePath.Value));
 
+        if (!IsFileValidForReading(filePath, out var validationError))
+            return CreateErrorContent(relativePath, validationError);
+
+        var (success, content, readError) = await TryReadContentAsync(filePath, cancellationToken);
+        if (!success)
+            return CreateErrorContent(relativePath, readError!);
+
+        return new FileContent(relativePath, content!, true);
+    }
+
+    private bool IsFileValidForReading(FilePath filePath, out string errorMessage)
+    {
+        var fileInfo = new FileInfo(filePath.Value);
+        if (!CheckFileExists(fileInfo, out errorMessage)) return false;
+        if (!CheckFileSize(fileInfo, out errorMessage)) return false;
+        return true;
+    }
+
+    private async Task<(bool Success, string? Content, string? ErrorMessage)> TryReadContentAsync(
+        FilePath filePath,
+        CancellationToken cancellationToken)
+    {
         try
         {
-            var fileInfo = new FileInfo(filePath);
-
-            if (!fileInfo.Exists)
-                return CreateErrorContent(filePath, rootPath, "File not found");
-
-            if (fileInfo.Length > _maxFileSize)
-                return CreateErrorContent(filePath, rootPath, $"File too large: {fileInfo.Length:N0} bytes");
-
-            var relativePath = Path.GetRelativePath(rootPath, filePath).Replace('\\', '/');
-            var content = await File.ReadAllTextAsync(filePath, Encoding.UTF8, cancellationToken);
-
-            return new FileContent(relativePath, content, true);
+            var content = await File.ReadAllTextAsync(filePath.Value, Encoding.UTF8, cancellationToken);
+            return (true, content, null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogWarning(ex, "Error reading file: {File}", filePath);
-            return CreateErrorContent(filePath, rootPath, $"Read error: {ex.Message}");
+            logger.LogWarning(ex, "Error reading file: {File}", filePath.Value);
+            return (false, null, $"Read error: {ex.Message}");
         }
     }
 
-    private static void ValidatePaths(string filePath, string rootPath)
+    private static bool CheckFileExists(FileInfo fileInfo, out string errorMessage)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(filePath);
-        ArgumentException.ThrowIfNullOrWhiteSpace(rootPath);
+        errorMessage = string.Empty;
+        if (!fileInfo.Exists)
+        {
+            errorMessage = "File not found";
+            return false;
+        }
+        return true;
     }
 
-    private static FileContent CreateErrorContent(string filePath, string rootPath, string error) =>
-        new(Path.GetRelativePath(rootPath, filePath), $"// {error}", false);
+    private bool CheckFileSize(FileInfo fileInfo, out string errorMessage)
+    {
+        errorMessage = string.Empty;
+        if (fileInfo.Length > _maxFileSize)
+        {
+            errorMessage = $"File too large: {fileInfo.Length:N0} bytes";
+            return false;
+        }
+        return true;
+    }
+
+    private static FileContent CreateErrorContent(RelativePath relativePath, string error) =>
+        new(relativePath, $"// {error}", false);
 }

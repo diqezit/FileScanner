@@ -1,64 +1,49 @@
-﻿namespace FileScanner.PathManagement.Services;
+﻿// PathManagement/Services/ProjectPathResolver.cs
+namespace FileScanner.PathManagement.Services;
 
 public sealed class ProjectPathResolver(
     ILogger<ProjectPathResolver> logger) : IProjectPathResolver
 {
-
-    public string? FindProjectRoot(string startPath, string projectFileName)
-    {
-        ValidateInputParameters(startPath, projectFileName);
-
-        var current = GetStartDirectory(startPath);
-        var searchPattern = CreateSearchPattern(projectFileName);
-
-        return SearchForProject(current, searchPattern);
-    }
-
-    private static void ValidateInputParameters(string startPath, string projectFileName)
+    public DirectoryPath? FindProjectRoot(string startPath, string projectFileName)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(startPath);
         ArgumentException.ThrowIfNullOrWhiteSpace(projectFileName);
+
+        var foundPath = SearchUpwardsFrom(new DirectoryInfo(startPath), projectFileName);
+        return foundPath is not null ? new DirectoryPath(foundPath) : null;
     }
 
-    private static DirectoryInfo GetStartDirectory(string startPath) =>
-        new(startPath);
-
-    private static string CreateSearchPattern(string projectFileName) =>
-        projectFileName.Contains('*') || projectFileName.Contains('?')
-            ? projectFileName
-            : $"*{projectFileName}*";
-
-    private string? SearchForProject(DirectoryInfo? current, string searchPattern)
+    private string? SearchUpwardsFrom(DirectoryInfo? startDirectory, string projectFileName)
     {
-        while (current != null)
+        var current = startDirectory;
+        var searchPattern = GetSearchPattern(projectFileName);
+
+        while (current is not null)
         {
-            try
+            if (DirectoryContainsProject(current, searchPattern))
             {
-                if (ProjectFoundInDirectory(current, searchPattern))
-                    return LogAndReturnProjectRoot(current);
-
-                current = current.Parent;
+                logger.LogInformation("Found project root: {ProjectRoot}", current.FullName);
+                return current.FullName;
             }
-            catch (Exception ex)
-            {
-                LogSearchError(ex, current);
-                break;
-            }
+            current = current.Parent;
         }
-
         return null;
     }
 
-    private static bool ProjectFoundInDirectory(DirectoryInfo directory, string searchPattern) =>
-        directory.GetFiles(searchPattern, SearchOption.TopDirectoryOnly).Length > 0;
-
-    private string LogAndReturnProjectRoot(DirectoryInfo directory)
+    private static bool DirectoryContainsProject(DirectoryInfo directory, string searchPattern)
     {
-        var fullPath = directory.FullName;
-        logger.LogInformation("Found project root: {ProjectRoot}", fullPath);
-        return fullPath;
+        try
+        {
+            return directory.GetFiles(searchPattern, SearchOption.TopDirectoryOnly).Length > 0;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
-    private void LogSearchError(Exception ex, DirectoryInfo? directory) =>
-        logger.LogWarning(ex, "Error searching directory {Directory}", directory?.FullName);
+    private static string GetSearchPattern(string projectFileName) =>
+        projectFileName.Contains('*') || projectFileName.Contains('?')
+            ? projectFileName
+            : $"*{projectFileName}*";
 }

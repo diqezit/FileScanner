@@ -1,22 +1,17 @@
-﻿namespace FileScanner.UI.Logging;
+﻿// UI/Logging/FormLogger.cs
+namespace FileScanner.UI.Logging;
 
-public sealed class FormLogger(TextBox logTextBox, string categoryName) : ILogger
+public sealed class FormLogger(FormLoggerProvider provider, string categoryName) : ILogger
 {
     private const int MaxLogLines = 1000;
-    private const int LinesToKeep = 500;
-    private static readonly Dictionary<LogLevel, string> LogLevelMap = new()
-    {
-        [LogLevel.Trace] = "TRCE",
-        [LogLevel.Debug] = "DBUG",
-        [LogLevel.Information] = "INFO",
-        [LogLevel.Warning] = "WARN",
-        [LogLevel.Error] = "ERRO",
-        [LogLevel.Critical] = "CRIT"
-    };
+    private const int LinesToTrim = 500;
+    private readonly LogEntryFormatter _formatter = new(categoryName);
 
-    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull
+        => null;
 
-    public bool IsEnabled(LogLevel logLevel) => true;
+    public bool IsEnabled(LogLevel logLevel)
+        => logLevel != LogLevel.None;
 
     public void Log<TState>(
         LogLevel logLevel,
@@ -25,40 +20,29 @@ public sealed class FormLogger(TextBox logTextBox, string categoryName) : ILogge
         Exception? exception,
         Func<TState, Exception?, string> formatter)
     {
-        if (!IsEnabled(logLevel)) return;
+        var logTextBox = provider.LogTextBox;
+        if (logTextBox is null || !IsEnabled(logLevel)) return;
 
         var message = formatter(state, exception);
-        var logEntry = FormatLogEntry(logLevel, message, exception);
+        var logEntry = _formatter.Format(logLevel, message, exception);
 
+        // UI updates must run on UI thread
         if (logTextBox.InvokeRequired)
-            logTextBox.Invoke(() => AppendLogMessage(logEntry));
+            logTextBox.Invoke(() => AppendLogMessage(logTextBox, logEntry));
         else
-            AppendLogMessage(logEntry);
+            AppendLogMessage(logTextBox, logEntry);
     }
 
-    private string FormatLogEntry(LogLevel logLevel, string message, Exception? exception)
-    {
-        var timestamp = DateTime.Now.ToString("HH:mm:ss");
-        var level = LogLevelMap.GetValueOrDefault(logLevel, "NONE");
-        var category = categoryName.Length > 30
-            ? "..." + categoryName[^27..]
-            : categoryName;
-
-        var logEntry = $"[{timestamp}] [{level}] {category}: {message}";
-
-        if (exception != null)
-            logEntry += $"{Environment.NewLine}Exception: {exception.Message}";
-
-        return logEntry;
-    }
-
-    private void AppendLogMessage(string message)
+    // Prevents UI from freezing by limiting number of lines in textbox
+    private static void AppendLogMessage(TextBox logTextBox, string message)
     {
         logTextBox.AppendText(message + Environment.NewLine);
-        logTextBox.SelectionStart = logTextBox.Text.Length;
-        logTextBox.ScrollToCaret();
 
         if (logTextBox.Lines.Length > MaxLogLines)
-            logTextBox.Lines = [.. logTextBox.Lines.Skip(MaxLogLines - LinesToKeep)];
+            // Keep recent logs by removing older half
+            logTextBox.Lines = [.. logTextBox.Lines.Skip(LinesToTrim)];
+
+        logTextBox.SelectionStart = logTextBox.TextLength;
+        logTextBox.ScrollToCaret();
     }
 }

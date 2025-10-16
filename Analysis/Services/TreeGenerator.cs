@@ -1,4 +1,5 @@
-﻿namespace FileScanner.Analysis.Services;
+﻿// Analysis/Services/TreeGenerator.cs
+namespace FileScanner.Analysis.Services;
 
 public sealed class TreeGenerator(
     IDirectoryValidator validator,
@@ -6,97 +7,126 @@ public sealed class TreeGenerator(
     ILogger<TreeGenerator> logger) : ITreeGenerator
 {
     private readonly int _maxDepth = options.Value.MaxTreeDepth;
+
     private const string DirectoryIcon = "📁";
     private const string FileIcon = "📄";
     private const string ErrorIcon = "❌";
 
-    public string GenerateDirectoryTree(string rootPath)
-    {
-        ArgumentException.ThrowIfNullOrWhiteSpace(rootPath);
+    private record FileSystemNode(string Path, bool IsDirectory);
 
-        if (!Directory.Exists(rootPath))
-            throw new DirectoryNotFoundException("Directory not found");
+    public string GenerateDirectoryTree(DirectoryPath rootPath)
+    {
+        if (!Directory.Exists(rootPath.Value))
+            throw new DirectoryNotFoundException($"Directory not found: {rootPath.Value}");
 
         var sb = new StringBuilder();
-        var rootName = Path.GetFileName(rootPath) ?? rootPath;
-        sb.AppendLine($"{DirectoryIcon} {rootName}");
+        AppendRootLine(sb, rootPath.Value);
 
         try
         {
-            GenerateTreeRecursive(rootPath, sb, "", 0);
+            BuildTree(rootPath.Value, sb, "", 0);
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error generating directory tree");
+            logger.LogError(ex, "Failed to generate directory tree for {Path}", rootPath.Value);
             sb.AppendLine($"└── {ErrorIcon} Error generating tree");
         }
 
         return sb.ToString();
     }
 
-    private void GenerateTreeRecursive(string currentPath, StringBuilder sb, string prefix, int depth)
+    private void BuildTree(string currentPath, StringBuilder sb, string prefix, int depth)
     {
-        if (depth > _maxDepth)
+        if (depth >= _maxDepth)
         {
-            sb.AppendLine($"{prefix}├── {ErrorIcon} Max depth exceeded");
+            AppendErrorLine(sb, prefix, "Max depth exceeded");
             return;
         }
 
+        if (!TryGetChildNodes(currentPath, out var nodes, out var errorMessage))
+        {
+            AppendErrorLine(sb, prefix, errorMessage);
+            return;
+        }
+
+        for (int i = 0; i < nodes.Count; i++)
+        {
+            ProcessNode(nodes[i], sb, prefix, depth, i == nodes.Count - 1);
+        }
+    }
+
+    private void ProcessNode(
+        FileSystemNode node,
+        StringBuilder sb,
+        string prefix,
+        int depth,
+        bool isLast)
+    {
+        AppendNodeLine(sb, node, prefix, isLast);
+
+        if (node.IsDirectory)
+        {
+            var newPrefix = prefix + (isLast ? "    " : "│   ");
+            BuildTree(node.Path, sb, newPrefix, depth + 1);
+        }
+    }
+
+    private bool TryGetChildNodes(
+        string path,
+        out List<FileSystemNode> nodes,
+        out string errorMessage)
+    {
         try
         {
-            var items = GetDirectoryItems(currentPath);
-            ProcessItems(items, sb, prefix, depth, currentPath);
+            var directories = GetFilteredDirectories(path);
+            var files = GetFilteredFiles(path);
+
+            nodes = [..directories.Concat(files)
+                .OrderBy(node => Path.GetFileName(node.Path), StringComparer.OrdinalIgnoreCase)];
+
+            errorMessage = string.Empty;
+            return true;
         }
         catch (UnauthorizedAccessException)
         {
-            sb.AppendLine($"{prefix}├── {ErrorIcon} Access denied");
+            nodes = [];
+            errorMessage = "Access denied";
+            return false;
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Error reading directory: {Path}", currentPath);
-            sb.AppendLine($"{prefix}├── {ErrorIcon} Read error");
+            nodes = [];
+            logger.LogWarning(ex, "Error reading directory: {Path}", path);
+            errorMessage = "Read error";
+            return false;
         }
     }
 
-    private void ProcessItems((string[] Directories, string[] Files) items,
-        StringBuilder sb, string prefix, int depth, string _)
+    private IEnumerable<FileSystemNode> GetFilteredDirectories(string path) =>
+        Directory.GetDirectories(path)
+            .Where(dir => !validator.ShouldIgnoreDirectory(dir))
+            .Select(dir => new FileSystemNode(dir, true));
+
+    private IEnumerable<FileSystemNode> GetFilteredFiles(string path) =>
+        Directory.GetFiles(path)
+            .Where(file => !validator.ShouldIgnoreFile(new FilePath(file)))
+            .Select(file => new FileSystemNode(file, false));
+
+    private static void AppendRootLine(StringBuilder sb, string rootPath) =>
+        sb.AppendLine($"{DirectoryIcon} {Path.GetFileName(rootPath) ?? rootPath}");
+
+    private static void AppendNodeLine(
+        StringBuilder sb,
+        FileSystemNode node,
+        string prefix,
+        bool isLast)
     {
-        var allItems = items.Directories.Concat(items.Files).ToArray();
-
-        for (int i = 0; i < allItems.Length; i++)
-        {
-            var isLast = i == allItems.Length - 1;
-            var connector = isLast ? "└── " : "├── ";
-            var item = allItems[i];
-
-            if (Directory.Exists(item))
-            {
-                var dirName = Path.GetFileName(item);
-                sb.AppendLine($"{prefix}{connector}{DirectoryIcon} {dirName}");
-
-                var newPrefix = prefix + (isLast ? "    " : "│   ");
-                GenerateTreeRecursive(item, sb, newPrefix, depth + 1);
-            }
-            else
-            {
-                var fileName = Path.GetFileName(item);
-                sb.AppendLine($"{prefix}{connector}{FileIcon} {fileName}");
-            }
-        }
+        var connector = isLast ? "└── " : "├── ";
+        var icon = node.IsDirectory ? DirectoryIcon : FileIcon;
+        var name = Path.GetFileName(node.Path);
+        sb.AppendLine($"{prefix}{connector}{icon} {name}");
     }
 
-    private (string[] Directories, string[] Files) GetDirectoryItems(string path)
-    {
-        var directories = Directory.GetDirectories(path)
-            .Where(dir => !validator.ShouldIgnoreDirectory(Path.GetFileName(dir)))
-            .OrderBy(d => Path.GetFileName(d), StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-        var files = Directory.GetFiles(path)
-            .Where(file => !validator.ShouldIgnoreFile(file))
-            .OrderBy(f => Path.GetFileName(f), StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-        return (directories, files);
-    }
+    private static void AppendErrorLine(StringBuilder sb, string prefix, string message) =>
+        sb.AppendLine($"{prefix}└── {ErrorIcon} {message}");
 }

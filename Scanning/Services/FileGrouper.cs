@@ -1,13 +1,10 @@
-﻿namespace FileScanner.Scanning.Services;
+﻿// Scanning/Services/FileGrouper.cs
+namespace FileScanner.Scanning.Services;
 
 public sealed class FileGrouper(
     IFileTypeClassifier classifier,
-    IOptions<ScannerConfiguration> options,
-    ILogger<FileGrouper> logger) : IFileGrouper
+    IOptions<ScannerConfiguration> options) : IFileGrouper
 {
-    private readonly IFileTypeClassifier _classifier = classifier;
-    private readonly ILogger<FileGrouper> _logger = logger;
-
     private readonly HashSet<string>? _allowedExtensions =
         options.Value.AllowedExtensions is { Length: > 0 }
             ? new HashSet<string>(
@@ -19,98 +16,61 @@ public sealed class FileGrouper(
         options.Value.IgnoredExtensions,
         StringComparer.OrdinalIgnoreCase);
 
-    private readonly string[] _ignoredDirectoryNames = options.Value.IgnoredDirectories;
-
-    public Task<Dictionary<string, List<string>>> GroupFilesByTypeAsync(
-        string directoryPath,
+    public Task<Dictionary<string, List<FilePath>>> GroupFilesByTypeAsync(
+        IEnumerable<string> filePaths,
         CancellationToken cancellationToken)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(directoryPath);
+        var groups = new Dictionary<string, List<FilePath>>(StringComparer.OrdinalIgnoreCase);
 
-        if (IsDirectoryIgnored(directoryPath))
-            return Task.FromResult(new Dictionary<string, List<string>>());
-
-        return Task.Run(() => ProcessDirectory(directoryPath, cancellationToken), cancellationToken);
-    }
-
-    private Dictionary<string, List<string>> ProcessDirectory(
-        string directoryPath,
-        CancellationToken cancellationToken)
-    {
-        var groups = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
-
-        try
-        {
-            if (!Directory.Exists(directoryPath))
-                return groups;
-
-            EnumerateAndGroupFiles(directoryPath, groups, cancellationToken);
-            SortFileGroups(groups);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogError(
-                ex,
-                "Ошибка при группировке файлов в директории: {Directory}",
-                directoryPath);
-        }
-
-        return groups;
-    }
-
-    private void EnumerateAndGroupFiles(
-        string directoryPath,
-        Dictionary<string, List<string>> groups,
-        CancellationToken cancellationToken)
-    {
-        foreach (var file in Directory.EnumerateFiles(directoryPath))
+        foreach (var filePathStr in filePaths)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var filePath = new FilePath(filePathStr);
+            if (ShouldIgnoreFile(filePath)) continue;
 
-            if (ShouldIgnoreFile(file))
-                continue;
-
-            var fileType = _classifier.ClassifyFile(file);
-            if (!groups.TryGetValue(fileType, out var fileList))
-            {
-                fileList = [];
-                groups[fileType] = fileList;
-            }
-
-            fileList.Add(file);
+            var fileType = classifier.ClassifyFile(filePath);
+            AddFileToGroup(groups, fileType, filePath);
         }
+
+        SortFileGroups(groups);
+        return Task.FromResult(groups);
     }
 
-    private static void SortFileGroups(Dictionary<string, List<string>> groups)
+    private static void AddFileToGroup(
+        Dictionary<string, List<FilePath>> groups,
+        string fileType,
+        FilePath filePath)
+    {
+        if (!groups.TryGetValue(fileType, out var fileList))
+        {
+            fileList = [];
+            groups[fileType] = fileList;
+        }
+        fileList.Add(filePath);
+    }
+
+    private static void SortFileGroups(Dictionary<string, List<FilePath>> groups)
     {
         foreach (var group in groups.Values)
-            group.Sort(StringComparer.OrdinalIgnoreCase);
-    }
-
-    private bool IsDirectoryIgnored(string directoryPath)
-    {
-        var dirName = new DirectoryInfo(directoryPath).Name;
-        if (_ignoredDirectoryNames.Contains(dirName, StringComparer.OrdinalIgnoreCase))
         {
-            _logger.LogDebug(
-                "Директория {Directory} пропущена, так как находится в списке игнорируемых",
-                directoryPath);
-            return true;
+            group.Sort((f1, f2) => StringComparer.OrdinalIgnoreCase.Compare(f1.Value, f2.Value));
         }
-
-        return false;
     }
 
-    private bool ShouldIgnoreFile(string filePath)
+    private bool ShouldIgnoreFile(FilePath filePath) =>
+        _allowedExtensions is not null
+            ? !IsFileInWhitelist(filePath)
+            : IsFileInBlacklist(filePath);
+
+    private bool IsFileInWhitelist(FilePath filePath) =>
+        _allowedExtensions!.Contains(
+            Path.GetExtension(filePath.Value) is { Length: > 0 } ext
+                ? ext
+                : Path.GetFileName(filePath.Value));
+
+    private bool IsFileInBlacklist(FilePath filePath)
     {
-        var extension = Path.GetExtension(filePath);
-
-        if (string.IsNullOrEmpty(extension))
-            return _allowedExtensions != null 
-                && !_allowedExtensions.Contains(Path.GetFileName(filePath));
-
-        return _allowedExtensions != null
-            ? !_allowedExtensions.Contains(extension)
-            : _ignoredExtensions.Contains(extension);
+        var extension = Path.GetExtension(filePath.Value);
+        return !string.IsNullOrEmpty(extension) && _ignoredExtensions.Contains(extension);
     }
 }

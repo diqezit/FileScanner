@@ -55,7 +55,7 @@ public sealed class UserSettingsService(ILogger<UserSettingsService> logger) : I
             Directory.CreateDirectory(directory);
     }
 
-    private static UserSettings DeserializeSettings(string json) => 
+    private static UserSettings DeserializeSettings(string json) =>
         JsonSerializer.Deserialize<UserSettings>(json) ?? new UserSettings();
 
     private static string SerializeSettings(UserSettings settings) =>

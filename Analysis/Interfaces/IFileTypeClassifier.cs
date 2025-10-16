@@ -1,8 +1,8 @@
-﻿// FileScanner.Core/Interfaces/IFileTypeClassifier.cs
+﻿// Analysis/Interfaces/IFileTypeClassifier.cs
 namespace FileScanner.Analysis.Interfaces;
 
 public interface IFileTypeClassifier
 {
-    string ClassifyFile(string filePath);
+    string ClassifyFile(FilePath filePath);
     IEnumerable<string> GetAllFileTypes();
 }

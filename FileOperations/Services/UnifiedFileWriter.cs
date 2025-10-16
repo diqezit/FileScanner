@@ -1,155 +1,69 @@
-﻿namespace FileScanner.FileOperations.Services;
+﻿// FileOperations/Services/UnifiedFileWriter.cs
+namespace FileScanner.FileOperations.Services;
 
 public sealed class UnifiedFileWriter(
+    ITreeGenerator treeGenerator,
+    IProjectStatisticsCalculator statsCalculator,
     ILogger<UnifiedFileWriter> logger) : IUnifiedFileWriter
 {
     private const string UnifiedFileName = "_United_All_Files.txt";
-    private const string FilePattern = "*.txt";
 
     public async Task WriteUnifiedFileAsync(
-        string outputDirectory,
+        DirectoryPath projectRoot,
+        DirectoryPath outputDirectory,
         CancellationToken cancellationToken)
     {
         try
         {
-            var files = GetFilesToUnite(outputDirectory);
-
-            if (!HasFilesToProcess(files))
-            {
-                LogNoFilesFound();
-                return;
-            }
-
-            var outputPath = GetUnifiedFilePath(outputDirectory);
-            await WriteUnifiedContentAsync(
-                outputPath,
-                files,
-                cancellationToken);
-
-            LogSuccess();
+            await TryUnifyFilesAsync(projectRoot, outputDirectory, cancellationToken);
         }
-        catch (OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            LogError(ex);
+            logger.LogError(ex, "Error creating unified file");
             throw;
         }
     }
 
-    private string[] GetFilesToUnite(string directory)
-    {
-        return [.. Directory
-            .GetFiles(directory, FilePattern)
-            .Where(IsNotUnifiedFile)
-            .OrderBy(f => f)];
-    }
-
-    private bool IsNotUnifiedFile(string filePath)
-    {
-        var fileName = Path.GetFileName(filePath);
-        return !fileName.Equals(
-            UnifiedFileName,
-            StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static bool HasFilesToProcess(string[] files) =>
-        files.Length > 0;
-
-    private static string GetUnifiedFilePath(string directory) =>
-        Path.Combine(directory, UnifiedFileName);
-
-    private static async Task WriteUnifiedContentAsync(
-        string outputPath,
-        string[] files,
+    private async Task TryUnifyFilesAsync(
+        DirectoryPath projectRoot,
+        DirectoryPath outputDirectory,
         CancellationToken cancellationToken)
     {
-        await using var writer = CreateWriter(outputPath);
-
-        await WriteHeaderAsync(writer, files.Length);
-        await WriteFilesContentAsync(
-            writer,
-            files,
-            cancellationToken);
-    }
-
-    private static StreamWriter CreateWriter(string path) =>
-        new(path, false, Encoding.UTF8);
-
-    private static async Task WriteHeaderAsync(
-        StreamWriter writer,
-        int fileCount)
-    {
-        await writer.WriteLineAsync("// " + new string('=', 40));
-        await writer.WriteLineAsync("// UNIFIED PROJECT CONTENT");
-        await writer.WriteLineAsync($"// Generated: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-        await writer.WriteLineAsync($"// Total files: {fileCount}");
-        await writer.WriteLineAsync("// " + new string('=', 40));
-        await writer.WriteLineAsync();
-    }
-
-    private static async Task WriteFilesContentAsync(
-        StreamWriter writer,
-        string[] files,
-        CancellationToken cancellationToken)
-    {
-        foreach (var file in files)
+        var filesToUnite = SourceFileProvider.GetFilesToUnite(outputDirectory.Value);
+        if (filesToUnite.Length == 0)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            await WriteFileContentAsync(writer, file, cancellationToken);
+            logger.LogWarning("No source files found to unite");
+            return;
         }
+
+        await WriteUnifiedFileWithMetadataAsync(projectRoot, outputDirectory, filesToUnite, cancellationToken);
     }
 
-    private static async Task WriteFileContentAsync(
-        StreamWriter writer,
-        string filePath,
+    private async Task WriteUnifiedFileWithMetadataAsync(
+        DirectoryPath projectRoot,
+        DirectoryPath outputDirectory,
+        string[] filesToUnite,
         CancellationToken cancellationToken)
     {
-        await WriteFileSeparatorAsync(writer, filePath);
-        await WriteFileBodyAsync(writer, filePath, cancellationToken);
-        await WriteEndingNewLinesAsync(writer);
-    }
+        var metadataHeader = await BuildMetadataHeaderAsync(projectRoot, cancellationToken);
+        var outputPath = Path.Combine(outputDirectory.Value, UnifiedFileName);
 
-    private static async Task WriteFileSeparatorAsync(
-        StreamWriter writer,
-        string filePath)
-    {
-        var fileName = Path.GetFileNameWithoutExtension(filePath);
-
-        await writer.WriteLineAsync("// " + new string('=', 40));
-        await writer.WriteLineAsync($"// FILE: {fileName}");
-        await writer.WriteLineAsync("// " + new string('=', 40));
-        await writer.WriteLineAsync();
-    }
-
-    private static async Task WriteFileBodyAsync(
-        StreamWriter writer,
-        string filePath,
-        CancellationToken cancellationToken)
-    {
-        var content = await File.ReadAllTextAsync(
-            filePath,
+        await UnifiedFileContentWriter.WriteAsync(
+            outputPath,
+            filesToUnite,
+            metadataHeader,
             cancellationToken);
 
-        await writer.WriteLineAsync(content);
+        logger.LogInformation("Created unified file: {FileName}", UnifiedFileName);
     }
 
-    private static async Task WriteEndingNewLinesAsync(StreamWriter writer)
+    private async Task<string> BuildMetadataHeaderAsync(
+        DirectoryPath projectRoot,
+        CancellationToken cancellationToken)
     {
-        await writer.WriteLineAsync();
-        await writer.WriteLineAsync();
+        var tree = treeGenerator.GenerateDirectoryTree(projectRoot);
+        var stats = await statsCalculator.CalculateAsync(projectRoot, cancellationToken);
+
+        return MetadataHeaderFormatter.Format(tree, stats);
     }
-
-    private void LogNoFilesFound() =>
-        logger.LogWarning("No files found to unite");
-
-    private void LogSuccess() =>
-        logger.LogInformation(
-            "Created unified file: {FileName}",
-            UnifiedFileName);
-
-    private void LogError(Exception ex) =>
-        logger.LogError(ex, "Error creating unified file");
 }

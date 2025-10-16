@@ -3,5 +3,5 @@ namespace FileScanner.PathManagement.Interfaces;
 
 public interface IProjectPathResolver
 {
-    string? FindProjectRoot(string startPath, string projectFileName);
+    DirectoryPath? FindProjectRoot(string startPath, string projectFileName);
 }

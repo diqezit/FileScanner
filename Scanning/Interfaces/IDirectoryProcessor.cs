@@ -1,7 +1,11 @@
-﻿// FileScanner.Core/Interfaces/IDirectoryProcessor.cs
+﻿// Scanning/Interfaces/IDirectoryProcessor.cs
 namespace FileScanner.Scanning.Interfaces;
 
 public interface IDirectoryProcessor
 {
-    Task ProcessAsync(string directoryPath, string rootPath, string outputDirectory, CancellationToken cancellationToken);
+    Task ProcessAsync(
+        DirectoryPath directoryPath,
+        DirectoryPath rootPath,
+        DirectoryPath outputDirectory,
+        CancellationToken cancellationToken);
 }

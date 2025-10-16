@@ -1,6 +1,8 @@
-﻿namespace FileScanner.Analysis.Services;
+﻿// Analysis/Services/DirectoryValidator.cs
+namespace FileScanner.Analysis.Services;
 
-public sealed class DirectoryValidator(IOptions<ScannerConfiguration> options) : IDirectoryValidator
+public sealed class DirectoryValidator(IOptions<ScannerConfiguration> options)
+    : IDirectoryValidator
 {
     private readonly HashSet<string> _ignoredDirectories = new(
         options.Value.IgnoredDirectories,
@@ -10,25 +12,32 @@ public sealed class DirectoryValidator(IOptions<ScannerConfiguration> options) :
         options.Value.IgnoredExtensions,
         StringComparer.OrdinalIgnoreCase);
 
-    public bool ShouldIgnoreDirectory(string directoryName)
+    public bool ShouldIgnoreDirectory(string directoryPath)
     {
-        if (string.IsNullOrWhiteSpace(directoryName)) return true;
-        directoryName = directoryName.Trim();
-        return _ignoredDirectories.Contains(directoryName) || IsHiddenItem(directoryName);
+        if (IsInvalidPath(directoryPath)) return true;
+        var directoryName = Path.GetFileName(directoryPath);
+        if (IsInvalidPath(directoryName)) return true;
+        return IsNameInIgnoredList(directoryName) || IsHidden(directoryName);
     }
 
-    public bool ShouldIgnoreFile(string filePath)
+    public bool ShouldIgnoreFile(FilePath filePath)
     {
-        if (string.IsNullOrWhiteSpace(filePath)) return true;
-
-        var fileName = Path.GetFileName(filePath);
-        if (string.IsNullOrWhiteSpace(fileName)) return true;
-
-        if (IsHiddenItem(fileName)) return true;
-
-        var extension = Path.GetExtension(filePath);
-        return !string.IsNullOrWhiteSpace(extension) && _ignoredExtensions.Contains(extension);
+        if (IsInvalidPath(filePath.Value)) return true;
+        var fileName = Path.GetFileName(filePath.Value);
+        if (IsInvalidPath(fileName)) return true;
+        return IsHidden(fileName) || HasIgnoredExtension(filePath);
     }
 
-    private static bool IsHiddenItem(string name) => name.StartsWith('.') && name.Length > 1;
+    private static bool IsInvalidPath(string? path) => string.IsNullOrWhiteSpace(path);
+
+    private bool IsNameInIgnoredList(string directoryName) =>
+        _ignoredDirectories.Contains(directoryName.Trim());
+
+    private bool HasIgnoredExtension(FilePath filePath)
+    {
+        var extension = Path.GetExtension(filePath.Value);
+        return !string.IsNullOrEmpty(extension) && _ignoredExtensions.Contains(extension);
+    }
+
+    private static bool IsHidden(string name) => name.StartsWith('.') && name.Length > 1;
 }

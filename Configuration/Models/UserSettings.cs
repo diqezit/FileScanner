@@ -1,5 +1,5 @@
 ﻿// Configuration/UserSettings.cs
-namespace FileScanner.Configuration;
+namespace FileScanner.Configuration.Models;
 
 public sealed class UserSettings
 {

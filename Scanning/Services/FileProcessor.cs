@@ -1,4 +1,4 @@
-﻿// FileScanner.Core/Services/FileProcessor.cs
+﻿// Scanning/Services/FileProcessor.cs
 namespace FileScanner.Scanning.Services;
 
 public sealed class FileProcessor(
@@ -6,25 +6,17 @@ public sealed class FileProcessor(
     ILogger<FileProcessor> logger) : IFileProcessor
 {
     public async Task<bool> ProcessDirectoryAsync(
-        string directoryPath,
-        string outputDirectory,
+        DirectoryPath directoryPath,
+        DirectoryPath outputDirectory,
         CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(directoryPath);
-        ArgumentException.ThrowIfNullOrWhiteSpace(outputDirectory);
-
         try
         {
-            directoryPath = Path.GetFullPath(directoryPath);
-            outputDirectory = Path.GetFullPath(outputDirectory);
-
-            if (!Directory.Exists(directoryPath))
-            {
-                logger.LogError("Directory not found: {DirectoryPath}", directoryPath);
-                return false;
-            }
-
-            await directoryProcessor.ProcessAsync(directoryPath, directoryPath, outputDirectory, cancellationToken);
+            await directoryProcessor.ProcessAsync(
+                directoryPath,
+                directoryPath,
+                outputDirectory,
+                cancellationToken);
             return true;
         }
         catch (OperationCanceledException)
@@ -34,7 +26,7 @@ public sealed class FileProcessor(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error processing directory: {Directory}", directoryPath);
+            logger.LogError(ex, "An unhandled error occurred during directory processing: {Directory}", directoryPath.Value);
             return false;
         }
     }
