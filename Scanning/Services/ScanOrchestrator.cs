@@ -1,4 +1,5 @@
-﻿// Scanning/Services/ScanOrchestrator.cs
+﻿#nullable enable
+
 namespace FileScanner.Scanning.Services;
 
 public sealed class ScanOrchestrator(
@@ -21,10 +22,9 @@ public sealed class ScanOrchestrator(
     public async Task PerformScanAsync(
         string projectPath,
         string baseOutputPath,
-        PostScanOptions options)
+        ScanOptions options)
     {
         _cancellationTokenSource = new CancellationTokenSource();
-
         try
         {
             await ExecuteScanPipelineAsync(
@@ -50,16 +50,14 @@ public sealed class ScanOrchestrator(
     private async Task ExecuteScanPipelineAsync(
         DirectoryPath projectPath,
         DirectoryPath baseOutputPath,
-        PostScanOptions options,
+        ScanOptions options,
         CancellationToken token)
     {
         NotifyScanStarted();
         var stopwatch = Stopwatch.StartNew();
 
         using var scope = serviceProvider.CreateScope();
-
         var pipeline = CreatePipeline(scope.ServiceProvider);
-
         LogPipelineStart(projectPath);
 
         var result = await pipeline.ExecuteAsync(
@@ -70,7 +68,6 @@ public sealed class ScanOrchestrator(
 
         LogPipelineSteps(result);
         stopwatch.Stop();
-
         ProcessPipelineResult(result, stopwatch.Elapsed);
     }
 
@@ -97,23 +94,15 @@ public sealed class ScanOrchestrator(
             logger.LogDebug("Pipeline step: {Step}", step);
     }
 
-    private void ProcessPipelineResult(
-        PipelineResult result,
-        TimeSpan elapsed)
+    private void ProcessPipelineResult(PipelineResult result, TimeSpan elapsed)
     {
         if (result.IsSuccess)
-        {
             HandleSuccess(result, elapsed);
-        }
         else
-        {
             HandlePipelineError(result);
-        }
     }
 
-    private void HandleSuccess(
-        PipelineResult result,
-        TimeSpan elapsed)
+    private void HandleSuccess(PipelineResult result, TimeSpan elapsed)
     {
         logger.LogInformation(
             "Pipeline completed successfully in {Elapsed}",
@@ -121,16 +110,12 @@ public sealed class ScanOrchestrator(
 
         ScanCompleted?.Invoke(
             this,
-            new ScanCompletedEventArgs(
-                elapsed,
-                result.OutputDirectory!));
+            new ScanCompletedEventArgs(elapsed, result.OutputDirectory!));
     }
 
     private void HandlePipelineError(PipelineResult result)
     {
-        var error = new Exception(
-            $"Pipeline failed: {result.ErrorMessage}");
-
+        var error = new Exception($"Pipeline failed: {result.ErrorMessage}");
         logger.LogError(error, "Pipeline execution failed");
         throw error;
     }

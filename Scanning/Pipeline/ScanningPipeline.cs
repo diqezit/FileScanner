@@ -1,4 +1,5 @@
-﻿// Scanning/Pipeline/ScanningPipeline.cs
+﻿#nullable enable
+
 namespace FileScanner.Scanning.Pipeline;
 
 public class ScanningPipeline(
@@ -11,7 +12,7 @@ public class ScanningPipeline(
     public async Task<PipelineResult> ExecuteAsync(
         string projectPath,
         string outputPath,
-        PostScanOptions options,
+        ScanOptions options,
         CancellationToken cancellationToken = default)
     {
         var result = new PipelineResult();
@@ -21,132 +22,76 @@ public class ScanningPipeline(
 
         var projectDir = new DirectoryPath(projectPath);
         var outputDir = CreateOutputDirectory(outputPath);
+        result.AddStep("Paths validated");
 
-        GenerateProjectTree(projectDir, result);
-
-        await CalculateStatistics(
+        var projectStructure = projectProcessor.EnumerateProject(
             projectDir,
-            result,
+            options.UseProjectFilters);
+
+        result.AddStep(
+            $"Project enumerated. Strategy: {(options.UseProjectFilters ? "Logical Filters" : "Physical Dirs")}");
+
+        var stats = await statsCalculator.CalculateAsync(
+            projectStructure,
             cancellationToken);
 
-        if (!await ProcessProjectFiles(
+        var tree = treeGenerator.GenerateDirectoryTree(
+            projectStructure,
+            projectDir);
+
+        var metadataHeader = MetadataHeaderFormatter.Format(tree, stats);
+        result.AddStep("Metadata generated");
+        result.ProjectTree = tree;
+        result.Statistics = stats;
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var success = await projectProcessor.ProcessProjectFilesAsync(
+            projectStructure,
             projectDir,
             outputDir,
-            result,
-            cancellationToken))
+            cancellationToken);
+
+        if (!success)
         {
+            LogError(
+                result,
+                "Processing failed",
+                "Intermediate file creation failed");
             return result;
         }
+        result.AddStep("Intermediate files created");
 
-        await CreateUnifiedFile(
-            projectDir,
+        await unifiedFileWriter.WriteUnifiedFileAsync(
+            metadataHeader,
             outputDir,
-            result,
             cancellationToken);
 
+        result.AddStep("Unified file created");
+
         if (options.IsSplitEnabled)
-        {
             await SplitUnifiedFile(
                 outputDir,
                 options.ChunkSize,
                 result,
                 cancellationToken);
-        }
 
         FinalizeSuccessResult(outputDir, result);
         return result;
     }
 
-    private static bool ValidatePaths(
-        string projectPath,
-        PipelineResult result)
+    private static bool ValidatePaths(string projectPath, PipelineResult result)
     {
         result.AddStep("Validating paths");
-
         if (Directory.Exists(projectPath))
             return true;
 
-        result.AddStep(
-            $"ERROR: Project path does not exist: {projectPath}");
+        result.AddStep($"ERROR: Project path does not exist: {projectPath}");
         result.ErrorMessage = "Project directory not found";
         return false;
     }
 
     private static DirectoryPath CreateOutputDirectory(string outputPath) =>
         new(Path.Combine(outputPath, "GeneratedProjectContent"));
-
-    private void GenerateProjectTree(
-        DirectoryPath projectDir,
-        PipelineResult result)
-    {
-        result.AddStep("Generating project tree");
-        try
-        {
-            result.ProjectTree = treeGenerator.GenerateDirectoryTree(projectDir);
-        }
-        catch (Exception ex)
-        {
-            LogWarning(result, "Could not generate tree", ex);
-        }
-    }
-
-    private async Task CalculateStatistics(
-        DirectoryPath projectDir,
-        PipelineResult result,
-        CancellationToken cancellationToken)
-    {
-        result.AddStep("Calculating statistics");
-        try
-        {
-            result.Statistics = await statsCalculator.CalculateAsync(
-                projectDir,
-                cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            LogWarning(result, "Could not calculate stats", ex);
-        }
-    }
-
-    private async Task<bool> ProcessProjectFiles(
-        DirectoryPath projectDir,
-        DirectoryPath outputDir,
-        PipelineResult result,
-        CancellationToken cancellationToken)
-    {
-        result.AddStep("Processing project files");
-
-        var success = await projectProcessor.ProcessProjectAsync(
-            projectDir,
-            outputDir,
-            cancellationToken);
-
-        if (success)
-            return true;
-
-        LogError(result, "Processing failed", "File processing failed");
-        return false;
-    }
-
-    private async Task CreateUnifiedFile(
-        DirectoryPath projectDir,
-        DirectoryPath outputDir,
-        PipelineResult result,
-        CancellationToken cancellationToken)
-    {
-        result.AddStep("Creating unified file");
-        try
-        {
-            await unifiedFileWriter.WriteUnifiedFileAsync(
-                projectDir,
-                outputDir,
-                cancellationToken);
-        }
-        catch (Exception ex)
-        {
-            LogError(result, "Could not create unified file", ex.Message);
-        }
-    }
 
     private async Task SplitUnifiedFile(
         DirectoryPath outputDir,
@@ -156,8 +101,9 @@ public class ScanningPipeline(
     {
         result.AddStep("Splitting unified file");
 
-        var unifiedFilePath = new FilePath(
-            Path.Combine(outputDir.Value, "_United_All_Files.txt"));
+        var unifiedFilePath = new FilePath(Path.Combine(
+            outputDir.Value,
+            "_United_All_Files.txt"));
 
         await fileSplitter.SplitFileAsync(
             unifiedFilePath,
@@ -173,12 +119,6 @@ public class ScanningPipeline(
         result.OutputDirectory = outputDir.Value;
         result.IsSuccess = true;
     }
-
-    private static void LogWarning(
-        PipelineResult result,
-        string message,
-        Exception ex) =>
-        result.AddStep($"WARNING: {message}: {ex.Message}");
 
     private static void LogError(
         PipelineResult result,

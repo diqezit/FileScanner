@@ -1,32 +1,35 @@
-﻿// Analysis/Services/ProjectStatisticsCalculator.cs
+﻿#nullable enable
+
 namespace FileScanner.Analysis.Services;
 
-public sealed class ProjectStatisticsCalculator(
-    IDirectoryValidator validator) : IProjectStatisticsCalculator
+public sealed class ProjectStatisticsCalculator : IProjectStatisticsCalculator
 {
     public Task<ProjectStatistics> CalculateAsync(
-        DirectoryPath projectPath,
+        ProjectStructure projectStructure,
         CancellationToken cancellationToken) =>
         Task.Run(() =>
         {
-            var validFiles = GetValidFileInfos(projectPath.Value, validator);
-            var validDirs = GetValidDirectoryPaths(projectPath.Value, validator);
-
             cancellationToken.ThrowIfCancellationRequested();
 
+            long totalSize = 0;
+            int fileCount = 0;
+
+            var allFiles = projectStructure.FileGroups.SelectMany(g => g.Value);
+            foreach (var file in allFiles)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                try
+                {
+                    totalSize += new FileInfo(file.Value).Length;
+                    fileCount++;
+                }
+                catch (IOException) { }
+            }
+
             return new ProjectStatistics(
-                FileCount: validFiles.Count,
-                DirectoryCount: validDirs.Count,
-                TotalSize: validFiles.Sum(file => file.Length)
+                FileCount: fileCount,
+                DirectoryCount: projectStructure.AllDirectories.Count,
+                TotalSize: totalSize
             );
         }, cancellationToken);
-
-    private static List<FileInfo> GetValidFileInfos(string path, IDirectoryValidator validator) =>
-        [..Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories)
-            .Where(file => !validator.ShouldIgnoreFile(new FilePath(file)))
-            .Select(file => new FileInfo(file))];
-
-    private static List<string> GetValidDirectoryPaths(string path, IDirectoryValidator validator) =>
-        [..Directory.EnumerateDirectories(path, "*", SearchOption.AllDirectories)
-            .Where(dir => !validator.ShouldIgnoreDirectory(Path.GetFileName(dir)))];
 }

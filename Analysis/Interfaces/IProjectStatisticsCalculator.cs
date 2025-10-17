@@ -1,11 +1,11 @@
-﻿// Analysis/Interfaces/IProjectStatisticsCalculator.cs
-using FileScanner.Analysis.Models;
-
-namespace FileScanner.UI.Interfaces;
+﻿// File: Analysis/Interfaces/IProjectStatisticsCalculator.cs
+namespace FileScanner.Analysis.Interfaces;
 
 public interface IProjectStatisticsCalculator
 {
+    // Calculates stats based on a pre-discovered project structure
+    // This decouples calculation from file system traversal
     Task<ProjectStatistics> CalculateAsync(
-        DirectoryPath projectPath,
+        ProjectStructure projectStructure,
         CancellationToken cancellationToken);
 }

@@ -5,7 +5,6 @@ namespace FileScanner.UI.Forms;
 partial class MainForm
 {
     private IContainer? components = null;
-
     private Panel mainPanel = null!;
     private Panel projectPanel = null!;
     private Panel outputPanel = null!;
@@ -23,16 +22,17 @@ partial class MainForm
     private StatusStrip statusStrip = null!;
     private ToolStripStatusLabel statusLabel = null!;
     private ToolStripStatusLabel fileCountLabel = null!;
-
     private CheckBox chkSplitFile = null!;
     private TextBox txtChunkSize = null!;
     private Label lblChars = null!;
     private Panel exportSettingsPanel = null!;
+    private CheckBox chkUseFilters = null!;
 
     protected override void Dispose(bool disposing)
     {
         if (disposing && components != null)
             components.Dispose();
+
         base.Dispose(disposing);
     }
 
@@ -51,7 +51,6 @@ partial class MainForm
         CreateStatusStrip();
         AssembleFormControls();
         ConfigureFormProperties();
-
         SetupCustomUI();
 
         ResumeLayout(false);
@@ -70,6 +69,7 @@ partial class MainForm
             txtProjectPath,
             txtOutputDirectory,
             chkSplitFile,
+            chkUseFilters,
             txtChunkSize
         };
         var initializer = new MainFormUIInitializer(this);
@@ -125,7 +125,7 @@ partial class MainForm
         {
             Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
             Location = new Point(20, 175),
-            Size = new Size(700, 50),
+            Size = new Size(700, 55),
             Name = "exportSettingsPanel"
         };
 
@@ -144,8 +144,7 @@ partial class MainForm
             Location = new Point(280, 3),
             Size = new Size(120, 27),
             Visible = false,
-            Name = "txtChunkSize",
-            Text = ""
+            Name = "txtChunkSize"
         };
 
         lblChars = new Label
@@ -158,8 +157,17 @@ partial class MainForm
             Name = "lblChars"
         };
 
+        chkUseFilters = new CheckBox
+        {
+            Text = "Use project filters (.vcxproj.filters)",
+            Location = new Point(0, 30),
+            AutoSize = true,
+            ForeColor = UITheme.PrimaryText,
+            Name = "chkUseFilters"
+        };
+
         exportSettingsPanel.Controls.AddRange(
-            new Control[] { chkSplitFile, txtChunkSize, lblChars });
+            [chkSplitFile, txtChunkSize, lblChars, chkUseFilters]);
     }
 
     private void CreateActionButtons()
@@ -238,7 +246,10 @@ partial class MainForm
             SplitterWidth = 5
         };
 
-        static void ConfigureSplitPanel(SplitterPanel panel, Color backColor, Control content)
+        static void ConfigureSplitPanel(
+            SplitterPanel panel,
+            Color backColor,
+            Control content)
         {
             panel.BackColor = backColor;
             panel.Padding = LayoutDefaults.SmallPadding;
@@ -246,7 +257,10 @@ partial class MainForm
         }
 
         ConfigureSplitPanel(splitContainer.Panel1, Color.White, txtTree);
-        ConfigureSplitPanel(splitContainer.Panel2, Color.FromArgb(40, 40, 40), txtLog);
+        ConfigureSplitPanel(
+            splitContainer.Panel2,
+            Color.FromArgb(40, 40, 40),
+            txtLog);
     }
 
     private void CreateStatusStrip()
@@ -273,13 +287,14 @@ partial class MainForm
             Size = new Size(914, 26)
         };
 
-        statusStrip.Items.AddRange(new ToolStripItem[] { statusLabel, fileCountLabel });
+        statusStrip.Items.AddRange(
+            [statusLabel, fileCountLabel]);
     }
 
     private void AssembleFormControls()
     {
-        mainPanel.Controls.AddRange(new Control[]
-        {
+        mainPanel.Controls.AddRange(
+        [
             projectPanel,
             outputPanel,
             exportSettingsPanel,
@@ -287,8 +302,8 @@ partial class MainForm
             progressBar,
             structureLabel,
             splitContainer
-        });
-        Controls.AddRange(new Control[] { mainPanel, statusStrip });
+        ]);
+        Controls.AddRange([mainPanel, statusStrip]);
     }
 
     private void ConfigureFormProperties()
@@ -303,6 +318,6 @@ partial class MainForm
         Name = "MainForm";
         StartPosition = FormStartPosition.CenterScreen;
         Text = "FileScanner";
-        this.Load += new System.EventHandler(this.MainForm_Load);
+        Load += MainForm_Load;
     }
 }

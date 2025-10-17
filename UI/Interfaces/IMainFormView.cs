@@ -1,4 +1,4 @@
-﻿// UI/Interfaces/IMainFormView.cs
+﻿// File: UI/Interfaces/IMainFormView.cs
 namespace FileScanner.UI.Interfaces;
 
 public interface IMainFormView
@@ -8,6 +8,7 @@ public interface IMainFormView
     string ProjectTreeText { set; }
     string StatisticsText { set; }
 
+    bool UseProjectFilters { get; }
     bool IsSplitEnabled { get; }
     int ChunkSizeInChars { get; }
 

@@ -1,8 +1,10 @@
-﻿// UI/Controllers/ProjectPreviewController.cs
+﻿#nullable enable
+
 namespace FileScanner.UI.Controllers;
 
 public sealed class ProjectPreviewController(
     IMainFormView view,
+    IProjectEnumerator projectEnumerator,
     ITreeGenerator treeGenerator,
     IProjectStatisticsCalculator statsCalculator)
 {
@@ -15,7 +17,6 @@ public sealed class ProjectPreviewController(
         }
 
         view.SetWaitCursor(true);
-
         try
         {
             await GenerateAndDisplayPreview();
@@ -31,14 +32,20 @@ public sealed class ProjectPreviewController(
     }
 
     private bool IsPathValid() =>
-        !string.IsNullOrWhiteSpace(view.ProjectPath) && Directory.Exists(view.ProjectPath);
+        !string.IsNullOrWhiteSpace(view.ProjectPath) &&
+        Directory.Exists(view.ProjectPath);
 
     private async Task GenerateAndDisplayPreview()
     {
         var projectPath = new DirectoryPath(view.ProjectPath);
 
-        var treeTask = GenerateTreeAsync(projectPath);
-        var statsTask = CalculateStatsAsync(projectPath);
+        var projectStructure = await Task.Run(() =>
+            projectEnumerator.EnumerateProject(
+                projectPath,
+                view.UseProjectFilters));
+
+        var treeTask = GenerateTreeAsync(projectStructure, projectPath);
+        var statsTask = CalculateStatsAsync(projectStructure);
 
         await Task.WhenAll(treeTask, statsTask);
 
@@ -46,11 +53,17 @@ public sealed class ProjectPreviewController(
         view.StatisticsText = FormatProjectStats(await statsTask);
     }
 
-    private Task<string> GenerateTreeAsync(DirectoryPath projectPath) =>
-        Task.Run(() => treeGenerator.GenerateDirectoryTree(projectPath));
+    private Task<string> GenerateTreeAsync(
+        ProjectStructure structure,
+        DirectoryPath root) =>
+        Task.Run(() =>
+            treeGenerator.GenerateDirectoryTree(structure, root));
 
-    private Task<ProjectStatistics> CalculateStatsAsync(DirectoryPath projectPath) =>
-        statsCalculator.CalculateAsync(projectPath, CancellationToken.None);
+    private Task<ProjectStatistics> CalculateStatsAsync(
+        ProjectStructure structure) =>
+        statsCalculator.CalculateAsync(
+            structure,
+            CancellationToken.None);
 
     private void DisplayError(Exception ex)
     {

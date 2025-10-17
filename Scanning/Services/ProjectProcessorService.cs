@@ -1,4 +1,5 @@
-﻿// Scanning/Services/ProjectProcessorService.cs
+﻿#nullable enable
+
 namespace FileScanner.Scanning.Services;
 
 public sealed class ProjectProcessorService(
@@ -10,69 +11,61 @@ public sealed class ProjectProcessorService(
     IOutputFileNameGenerator nameGenerator,
     ILogger<ProjectProcessorService> logger) : IProjectProcessor
 {
-    public async Task<bool> ProcessProjectAsync(
-        DirectoryPath projectRootDirectory,
+    public ProjectStructure EnumerateProject(
+        DirectoryPath projectRoot,
+        bool useFilters) =>
+        projectEnumerator.EnumerateProject(projectRoot, useFilters);
+
+    public async Task<bool> ProcessProjectFilesAsync(
+        ProjectStructure projectStructure,
+        DirectoryPath projectRoot,
         DirectoryPath outputDirectory,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken)
     {
-        if (!ArePrerequisitesMet(projectRootDirectory))
-            return false;
+        if (!Directory.Exists(projectRoot.Value))
+        {
+            logger.LogError(
+                "Project directory not found: {Project}",
+                projectRoot.Value);
+
+            throw new DirectoryNotFoundException(
+                $"Project directory not found: {projectRoot.Value}");
+        }
 
         logger.LogInformation(
-            "Starting project processing for: {ProjectRoot}",
-            projectRootDirectory.Value);
+            "Starting intermediate file processing for: {ProjectRoot}",
+            projectRoot.Value);
 
         try
         {
             await directoryCleaner.CleanAsync(outputDirectory, cancellationToken);
 
-            var enumerationResult = projectEnumerator.EnumerateProject(projectRootDirectory);
+            var processingTasks = projectStructure.FileGroups.Select(group =>
+                ProcessDirectoryContentsAsync(
+                    group.Key,
+                    projectRoot,
+                    outputDirectory,
+                    group.Value,
+                    cancellationToken));
 
-            await ProcessDiscoveredFiles(
-                enumerationResult,
-                projectRootDirectory,
-                outputDirectory,
-                cancellationToken);
-
+            await Task.WhenAll(processingTasks);
             return true;
         }
         catch (OperationCanceledException)
         {
-            logger.LogInformation("Directory processing cancelled");
+            logger.LogInformation("File processing cancelled");
             return false;
         }
         catch (Exception ex)
         {
             logger.LogError(
                 ex,
-                "An unhandled error occurred during directory processing: {Directory}",
-                projectRootDirectory.Value);
+                "An error occurred during file processing: {Directory}",
+                projectRoot.Value);
             return false;
         }
     }
 
-    // Groups all discovered files by directory and processes them in parallel
-    private async Task ProcessDiscoveredFiles(
-        ProjectEnumerationResult enumerationResult,
-        DirectoryPath rootPath,
-        DirectoryPath outputDirectory,
-        CancellationToken cancellationToken)
-    {
-        var filesByDirectory = enumerationResult.Files
-            .GroupBy(f => new DirectoryPath(Path.GetDirectoryName(f.Value)!));
-
-        var processingTasks = filesByDirectory.Select(directoryGroup =>
-            ProcessDirectoryContentsAsync(
-                directoryGroup.Key,
-                rootPath,
-                outputDirectory,
-                directoryGroup.ToList(), // Convert group to a list for processing
-                cancellationToken));
-
-        await Task.WhenAll(processingTasks);
-    }
-
-    // Processes all files belonging to a single directory
     private async Task ProcessDirectoryContentsAsync(
         DirectoryPath directoryPath,
         DirectoryPath rootPath,
@@ -80,10 +73,13 @@ public sealed class ProjectProcessorService(
         List<FilePath> filesInDirectory,
         CancellationToken cancellationToken)
     {
-        var fileGroups = await GroupFilesByTypeAsync(filesInDirectory, cancellationToken);
+        var filePathsAsStrings = filesInDirectory.Select(f => f.Value);
+        var fileGroupsByType = await fileGrouper.GroupFilesByTypeAsync(
+            filePathsAsStrings,
+            cancellationToken);
 
-        var writingTasks = fileGroups
-            .Where(group => group.Value.Any())
+        var writingTasks = fileGroupsByType
+            .Where(group => group.Value.Count > 0)
             .Select(group => WriteFileGroupAsync(
                 group.Key,
                 group.Value,
@@ -95,19 +91,6 @@ public sealed class ProjectProcessorService(
         await Task.WhenAll(writingTasks);
     }
 
-    // Groups a list of files by their classified type
-    private async Task<Dictionary<string, List<FilePath>>> GroupFilesByTypeAsync(
-        List<FilePath> filesInDirectory,
-        CancellationToken cancellationToken)
-    {
-        var filePathsAsStrings = filesInDirectory.Select(f => f.Value);
-
-        return await fileGrouper.GroupFilesByTypeAsync(
-            filePathsAsStrings,
-            cancellationToken);
-    }
-
-    // Aggregates content for a file group and writes a single output file
     private async Task WriteFileGroupAsync(
         string fileType,
         IEnumerable<FilePath> filePaths,
@@ -136,19 +119,5 @@ public sealed class ProjectProcessorService(
             outputPath,
             aggregatedContents,
             cancellationToken);
-    }
-
-    // Fails fast if root directory is invalid before starting any processing
-    private bool ArePrerequisitesMet(DirectoryPath projectRootDirectory)
-    {
-        if (Directory.Exists(projectRootDirectory.Value))
-            return true;
-
-        logger.LogError(
-            "Scan prerequisites not met for project: {Project}",
-            projectRootDirectory.Value);
-
-        throw new DirectoryNotFoundException(
-            $"Project directory not found: {projectRootDirectory.Value}");
     }
 }

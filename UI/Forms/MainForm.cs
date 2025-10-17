@@ -5,12 +5,13 @@ namespace FileScanner.UI.Forms;
 public partial class MainForm : Form, IMainFormView
 {
     private readonly MainController _controller;
-    private bool _isScanning = false;
+    private bool _isScanning;
 
     public MainForm(
         ScanOrchestrator scanOrchestrator,
         IUserSettingsService userSettingsService,
         IDefaultPathProvider defaultPathProvider,
+        IProjectEnumerator projectEnumerator,
         ITreeGenerator treeGenerator,
         IProjectStatisticsCalculator statsCalculator,
         FormLoggerProvider formLoggerProvider,
@@ -18,8 +19,7 @@ public partial class MainForm : Form, IMainFormView
         IOptions<ScannerConfiguration> scannerOptions)
     {
         InitializeComponent();
-        formLoggerProvider.LogTextBox = this.txtLog;
-
+        formLoggerProvider.LogTextBox = txtLog;
         txtChunkSize.Text = scannerOptions.Value.DefaultChunkSize.ToString();
 
         _controller = new MainController(
@@ -27,11 +27,14 @@ public partial class MainForm : Form, IMainFormView
             scanOrchestrator,
             defaultPathProvider,
             userSettingsService,
+            projectEnumerator,
             treeGenerator,
             statsCalculator,
             settingsLogger);
 
         _controller.Initialize();
+
+        chkUseFilters.CheckedChanged += ChkUseFilters_CheckedChanged;
     }
 
     public string ProjectPath
@@ -46,9 +49,17 @@ public partial class MainForm : Form, IMainFormView
         set => txtOutputDirectory.Text = value;
     }
 
-    public string ProjectTreeText { set => txtTree.Text = value; }
-    public string StatisticsText { set => fileCountLabel.Text = value; }
+    public string ProjectTreeText
+    {
+        set => txtTree.Text = value;
+    }
 
+    public string StatisticsText
+    {
+        set => fileCountLabel.Text = value;
+    }
+
+    public bool UseProjectFilters => chkUseFilters.Checked;
     public bool IsSplitEnabled => chkSplitFile.Checked;
     public int ChunkSizeInChars => int.TryParse(txtChunkSize.Text, out var size) ? size : 0;
 
@@ -61,7 +72,6 @@ public partial class MainForm : Form, IMainFormView
     public void SetScanningState(bool isScanning)
     {
         _isScanning = isScanning;
-
         UpdateInputControlsState(!isScanning);
         UpdateActionButtonState(isScanning);
         UpdateProgressBarState(isScanning);
@@ -73,6 +83,7 @@ public partial class MainForm : Form, IMainFormView
         txtOutputDirectory.Enabled = isEnabled;
         btnBrowseProject.Enabled = isEnabled;
         btnBrowseOutput.Enabled = isEnabled;
+        chkUseFilters.Enabled = isEnabled;
         chkSplitFile.Enabled = isEnabled;
         txtChunkSize.Enabled = isEnabled;
         lblChars.Enabled = isEnabled;
@@ -99,9 +110,7 @@ public partial class MainForm : Form, IMainFormView
         progressBar.Visible = isScanning;
 
         if (isScanning)
-        {
             progressBar.Style = ProgressBarStyle.Marquee;
-        }
         else
         {
             progressBar.Style = ProgressBarStyle.Continuous;
@@ -143,10 +152,13 @@ public partial class MainForm : Form, IMainFormView
 
     private void ChkSplitFile_CheckedChanged(object? sender, EventArgs e)
     {
-        bool isChecked = chkSplitFile.Checked;
+        var isChecked = chkSplitFile.Checked;
         txtChunkSize.Visible = isChecked;
         lblChars.Visible = isChecked;
     }
+
+    private void ChkUseFilters_CheckedChanged(object? sender, EventArgs e) =>
+        _controller.RequestPreviewUpdate();
 
     protected override void OnFormClosing(FormClosingEventArgs e)
     {

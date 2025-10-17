@@ -1,49 +1,30 @@
-﻿namespace FileScanner.UI.Controllers;
+﻿#nullable enable
 
-public sealed class MainController
+namespace FileScanner.UI.Controllers;
+
+public sealed class MainController(
+    IMainFormView view,
+    ScanOrchestrator scanOrchestrator,
+    IDefaultPathProvider defaultPathProvider,
+    IUserSettingsService userSettingsService,
+    IProjectEnumerator projectEnumerator,
+    ITreeGenerator treeGenerator,
+    IProjectStatisticsCalculator statsCalculator,
+    ILogger<SettingsController> settingsLogger)
 {
-    private readonly IMainFormView _view;
-    private readonly ScanOrchestrator _scanOrchestrator;
-    private readonly IDefaultPathProvider _defaultPathProvider;
-    private readonly IUserSettingsService _userSettingsService;
-    private readonly ITreeGenerator _treeGenerator;
-    private readonly IProjectStatisticsCalculator _statsCalculator;
-    private readonly ILogger<SettingsController> _settingsLogger;
+    private readonly SettingsController _settingsController = new(
+        view,
+        userSettingsService,
+        defaultPathProvider,
+        settingsLogger);
 
-    private readonly SettingsController _settingsController;
-    private readonly ProjectPreviewController _previewController;
-    private readonly ScanFeedbackController _feedbackController;
+    private readonly ProjectPreviewController _previewController = new(
+        view,
+        projectEnumerator,
+        treeGenerator,
+        statsCalculator);
 
-    public MainController(
-        IMainFormView view,
-        ScanOrchestrator scanOrchestrator,
-        IDefaultPathProvider defaultPathProvider,
-        IUserSettingsService userSettingsService,
-        ITreeGenerator treeGenerator,
-        IProjectStatisticsCalculator statsCalculator,
-        ILogger<SettingsController> settingsLogger)
-    {
-        _view = view;
-        _scanOrchestrator = scanOrchestrator;
-        _defaultPathProvider = defaultPathProvider;
-        _userSettingsService = userSettingsService;
-        _treeGenerator = treeGenerator;
-        _statsCalculator = statsCalculator;
-        _settingsLogger = settingsLogger;
-
-        _settingsController = new SettingsController(
-            _view,
-            _userSettingsService,
-            _defaultPathProvider,
-            _settingsLogger);
-
-        _previewController = new ProjectPreviewController(
-            _view,
-            _treeGenerator,
-            _statsCalculator);
-
-        _feedbackController = new ScanFeedbackController(_view);
-    }
+    private readonly ScanFeedbackController _feedbackController = new(view);
 
     public void Initialize()
     {
@@ -53,80 +34,83 @@ public sealed class MainController
 
     private void WireUpViewEvents()
     {
-        _view.LoadForm += OnViewLoad;
-        _view.StartScanClick += OnStartScan;
-        _view.CancelScanClick += OnCancelScan;
-        _view.BrowseProjectClick += OnBrowseProject;
-        _view.BrowseOutputClick += OnBrowseOutput;
+        view.LoadForm += OnViewLoad;
+        view.StartScanClick += OnStartScan;
+        view.CancelScanClick += OnCancelScan;
+        view.BrowseProjectClick += OnBrowseProject;
+        view.BrowseOutputClick += OnBrowseOutput;
     }
 
     private void WireUpOrchestratorEvents()
     {
-        _scanOrchestrator.ScanStarted += (s, e) =>
+        scanOrchestrator.ScanStarted += (s, e) =>
             _feedbackController.HandleScanStarted();
 
-        _scanOrchestrator.ScanCompleted += (s, e) =>
+        scanOrchestrator.ScanCompleted += (s, e) =>
         {
             _feedbackController.HandleScanCompleted(e);
             _settingsController.SaveCurrentSettings();
         };
 
-        _scanOrchestrator.ScanCancelled += (s, e) =>
+        scanOrchestrator.ScanCancelled += (s, e) =>
             _feedbackController.HandleScanCancelled();
 
-        _scanOrchestrator.ScanFailed += (s, e) =>
+        scanOrchestrator.ScanFailed += (s, e) =>
             _feedbackController.HandleScanFailed(e);
     }
 
     private void OnViewLoad(object? sender, EventArgs e)
     {
         _settingsController.LoadInitialSettings();
-        _ = HandleAsyncTask(_previewController.UpdateProjectPreview());
+        RequestPreviewUpdate();
     }
+
+    public void RequestPreviewUpdate() =>
+        _ = HandleAsyncTask(_previewController.UpdateProjectPreview());
 
     private void OnStartScan(object? sender, EventArgs e)
     {
         if (!ValidateInputs())
             return;
 
-        var options = new PostScanOptions(
-            IsSplitEnabled: _view.IsSplitEnabled,
-            ChunkSize: _view.ChunkSizeInChars
+        var options = new ScanOptions(
+            UseProjectFilters: view.UseProjectFilters,
+            IsSplitEnabled: view.IsSplitEnabled,
+            ChunkSize: view.ChunkSizeInChars
         );
 
         _ = HandleAsyncTask(
-            _scanOrchestrator.PerformScanAsync(
-                _view.ProjectPath,
-                _view.OutputPath,
+            scanOrchestrator.PerformScanAsync(
+                view.ProjectPath,
+                view.OutputPath,
                 options));
     }
 
     private void OnCancelScan(object? sender, EventArgs e) =>
-        _scanOrchestrator.RequestCancellation();
+        scanOrchestrator.RequestCancellation();
 
     private void OnBrowseProject(object? sender, EventArgs e) =>
         UIHelper.BrowseFolder(
             "Select project root folder",
-            _view.ProjectPath,
+            view.ProjectPath,
             path =>
             {
-                _view.ProjectPath = path;
-                _view.OutputPath = _defaultPathProvider.GetDefaultOutputPath(
-                    new DirectoryPath(path)).Value;
-
-                _ = HandleAsyncTask(_previewController.UpdateProjectPreview());
+                view.ProjectPath = path;
+                view.OutputPath = defaultPathProvider
+                    .GetDefaultOutputPath(new DirectoryPath(path)).Value;
+                RequestPreviewUpdate();
             });
 
     private void OnBrowseOutput(object? sender, EventArgs e) =>
         UIHelper.BrowseFolder(
             "Select output folder",
-            _view.OutputPath,
-            path => _view.OutputPath = path,
+            view.OutputPath,
+            path => view.OutputPath = path,
             true);
 
     public void HandleFormClosing(FormClosingEventArgs e)
     {
-        if (_scanOrchestrator.IsScanRunning)
+        if (scanOrchestrator.IsScanRunning)
             HandleCloseWithRunningScan(e);
         else
             _settingsController.SaveCurrentSettings();
@@ -134,25 +118,30 @@ public sealed class MainController
 
     private void HandleCloseWithRunningScan(FormClosingEventArgs e)
     {
-        const string message = "Scan is still running. Are you sure you want to close?";
-        bool userConfirmed = UIHelper.ShowQuestionDialog(message, "Confirm") == DialogResult.Yes;
+        const string message =
+            "Scan is still running. Are you sure you want to close?";
+
+        var userConfirmed = UIHelper.ShowQuestionDialog(
+            message,
+            "Confirm") == DialogResult.Yes;
 
         if (userConfirmed)
-            _scanOrchestrator.RequestCancellation();
+            scanOrchestrator.RequestCancellation();
         else
             e.Cancel = true;
     }
 
     private bool ValidateInputs()
     {
-        if (string.IsNullOrWhiteSpace(_view.ProjectPath) || !Directory.Exists(_view.ProjectPath))
+        if (string.IsNullOrWhiteSpace(view.ProjectPath) ||
+            !Directory.Exists(view.ProjectPath))
         {
             UIHelper.ShowWarning(
-                $"Project directory does not exist:\n{_view.ProjectPath}");
+                $"Project directory does not exist:\n{view.ProjectPath}");
             return false;
         }
 
-        if (string.IsNullOrWhiteSpace(_view.OutputPath))
+        if (string.IsNullOrWhiteSpace(view.OutputPath))
         {
             UIHelper.ShowWarning("Please specify output directory");
             return false;
