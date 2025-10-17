@@ -8,13 +8,11 @@ public static class ScanningServiceExtensions
         // Core scanning services are tied to a single operation scope
         services.AddScoped<IFileContentAggregator, FileContentAggregator>();
         services.AddScoped<IFileGrouper, FileGrouper>();
-        services.AddScoped<IDirectoryProcessor, DirectoryProcessor>();
-        services.AddScoped<IFileProcessor, FileProcessor>();
 
-        // The main scanning service implementation
-        services.AddScoped<IFileScanner, FileScannerService>();
+        // Register our new, unified service for project processing
+        services.AddScoped<IProjectProcessor, ProjectProcessorService>();
 
-        // Orchestrator is lightweight and created for each scan
+        // Orchestrator for creating the pipeline
         services.AddTransient<ScanOrchestrator>();
 
         return services;

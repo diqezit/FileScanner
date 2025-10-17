@@ -1,7 +1,4 @@
-﻿// UI/Forms/MainForm.Designer.cs
-#nullable enable
-
-using FileScanner.UI.Forms.MainFormLogic;
+﻿#nullable enable
 
 namespace FileScanner.UI.Forms;
 
@@ -20,13 +17,17 @@ partial class MainForm
     private TextBox txtLog = null!;
     private Button btnBrowseProject = null!;
     private Button btnBrowseOutput = null!;
-    private Button btnStartScan = null!;
-    private Button btnCancel = null!;
+    private Button btnAction = null!;
     private SplitContainer splitContainer = null!;
     private ProgressBar progressBar = null!;
     private StatusStrip statusStrip = null!;
     private ToolStripStatusLabel statusLabel = null!;
     private ToolStripStatusLabel fileCountLabel = null!;
+
+    private CheckBox chkSplitFile = null!;
+    private TextBox txtChunkSize = null!;
+    private Label lblChars = null!;
+    private Panel exportSettingsPanel = null!;
 
     protected override void Dispose(bool disposing)
     {
@@ -40,7 +41,9 @@ partial class MainForm
         SuspendLayout();
 
         CreateMainPanel();
-        CreateInputPanels();
+        CreateProjectInputPanel();
+        CreateOutputInputPanel();
+        CreateExportSettingsPanel();
         CreateActionButtons();
         CreateProgressBar();
         CreateStructureLabel();
@@ -55,8 +58,6 @@ partial class MainForm
         PerformLayout();
     }
 
-    // Decouples custom UI styling from generated layout code
-    // Allows easier UI modifications without touching main initializer
     private void SetupCustomUI()
     {
         var allControls = new List<Control>
@@ -65,10 +66,11 @@ partial class MainForm
             txtTree,
             btnBrowseProject,
             btnBrowseOutput,
-            btnStartScan,
-            btnCancel,
+            btnAction,
             txtProjectPath,
-            txtOutputDirectory
+            txtOutputDirectory,
+            chkSplitFile,
+            txtChunkSize
         };
         var initializer = new MainFormUIInitializer(this);
         initializer.SetupUI(allControls);
@@ -87,63 +89,90 @@ partial class MainForm
         };
     }
 
-    private void CreateInputPanels()
+    private void CreateProjectInputPanel()
     {
         var projectControls = ComponentFactory.CreateInputPanel(
             "Project Path",
             "Select the project's root folder",
-            BtnBrowseProject_Click
-        );
+            BtnBrowseProject_Click);
+
         projectPanel = projectControls.Panel;
         txtProjectPath = projectControls.TextBox;
         btnBrowseProject = projectControls.Button;
-
-        // Name controls for lookup in the UI initializer
         txtProjectPath.Name = "txtProjectPath";
         btnBrowseProject.Name = "btnBrowseProject";
         projectPanel.Location = new Point(20, 20);
+    }
 
+    private void CreateOutputInputPanel()
+    {
         var outputControls = ComponentFactory.CreateInputPanel(
             "Output Folder",
             "Select a folder to save the scan results",
-            BtnBrowseOutput_Click
-        );
+            BtnBrowseOutput_Click);
+
         outputPanel = outputControls.Panel;
         txtOutputDirectory = outputControls.TextBox;
         btnBrowseOutput = outputControls.Button;
-
         txtOutputDirectory.Name = "txtOutputDirectory";
         btnBrowseOutput.Name = "btnBrowseOutput";
         outputPanel.Location = new Point(20, 105);
     }
 
+    private void CreateExportSettingsPanel()
+    {
+        exportSettingsPanel = new Panel
+        {
+            Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right,
+            Location = new Point(20, 175),
+            Size = new Size(700, 50),
+            Name = "exportSettingsPanel"
+        };
+
+        chkSplitFile = new CheckBox
+        {
+            Text = "Split output file by character limit",
+            Location = new Point(0, 5),
+            AutoSize = true,
+            ForeColor = UITheme.PrimaryText,
+            Name = "chkSplitFile"
+        };
+        chkSplitFile.CheckedChanged += ChkSplitFile_CheckedChanged;
+
+        txtChunkSize = new TextBox
+        {
+            Location = new Point(280, 3),
+            Size = new Size(120, 27),
+            Visible = false,
+            Name = "txtChunkSize",
+            Text = ""
+        };
+
+        lblChars = new Label
+        {
+            Text = "chars per file",
+            Location = new Point(405, 7),
+            AutoSize = true,
+            Visible = false,
+            ForeColor = UITheme.SecondaryText,
+            Name = "lblChars"
+        };
+
+        exportSettingsPanel.Controls.AddRange(
+            new Control[] { chkSplitFile, txtChunkSize, lblChars });
+    }
+
     private void CreateActionButtons()
     {
-        btnStartScan = ComponentFactory.CreateFlatButton(
-            name: "btnStartScan",
+        btnAction = ComponentFactory.CreateFlatButton(
+            name: "btnAction",
             text: "\uE768 Start",
             font: UITheme.TitleFont,
             backColor: UITheme.AccentColor,
             foreColor: UITheme.LightText,
-            textAlign: ContentAlignment.MiddleCenter
-        );
-        btnStartScan.Dock = DockStyle.Fill;
-        btnStartScan.Click += BtnStartScan_Click;
-
-        btnCancel = ComponentFactory.CreateFlatButton(
-            name: "btnCancel",
-            text: "\uE71A Stop",
-            font: UITheme.TitleFont,
-            backColor: UITheme.DestructiveColor,
-            foreColor: UITheme.LightText,
-            textAlign: ContentAlignment.MiddleCenter
-        );
-        btnCancel.Dock = DockStyle.Right;
-        btnCancel.Size = new Size(80, 43);
-
-        // Hide stop button until scan starts
-        btnCancel.Visible = false;
-        btnCancel.Click += BtnCancel_Click;
+            textAlign: ContentAlignment.MiddleCenter);
+        btnAction.Dock = DockStyle.Fill;
+        btnAction.Click += BtnAction_Click;
 
         buttonPanel = new Panel
         {
@@ -152,7 +181,7 @@ partial class MainForm
             Name = "buttonPanel",
             Size = new Size(148, 43)
         };
-        buttonPanel.Controls.AddRange(new Control[] { btnStartScan, btnCancel });
+        buttonPanel.Controls.Add(btnAction);
     }
 
     private void CreateProgressBar()
@@ -181,24 +210,20 @@ partial class MainForm
         };
     }
 
-    // Use a local function to avoid repeating panel setup code
-    // It is only used here so it stays local
     private void CreateSplitContainerWithTextBoxes()
     {
         txtTree = ComponentFactory.CreateMultilineTextBox(
             Color.White,
             UITheme.TreeFont,
             UITheme.PrimaryText,
-            ScrollBars.Both
-        );
+            ScrollBars.Both);
         txtTree.Name = "txtTree";
 
         txtLog = ComponentFactory.CreateMultilineTextBox(
             UITheme.DarkControlBackground,
             UITheme.LogFont,
             UITheme.MutedLightText,
-            ScrollBars.Vertical
-        );
+            ScrollBars.Vertical);
         txtLog.Name = "txtLog";
 
         splitContainer = new SplitContainer
@@ -231,6 +256,7 @@ partial class MainForm
             Text = "Ready",
             ForeColor = UITheme.LightText
         };
+
         fileCountLabel = new ToolStripStatusLabel
         {
             ForeColor = UITheme.MutedLightText,
@@ -246,6 +272,7 @@ partial class MainForm
             Name = "statusStrip",
             Size = new Size(914, 26)
         };
+
         statusStrip.Items.AddRange(new ToolStripItem[] { statusLabel, fileCountLabel });
     }
 
@@ -255,6 +282,7 @@ partial class MainForm
         {
             projectPanel,
             outputPanel,
+            exportSettingsPanel,
             buttonPanel,
             progressBar,
             structureLabel,
@@ -275,5 +303,6 @@ partial class MainForm
         Name = "MainForm";
         StartPosition = FormStartPosition.CenterScreen;
         Text = "FileScanner";
+        this.Load += new System.EventHandler(this.MainForm_Load);
     }
 }

@@ -1,5 +1,4 @@
-﻿// PathManagement/Services/OutputFileNameGenerator.cs
-namespace FileScanner.PathManagement.Services;
+﻿namespace FileScanner.PathManagement.Services;
 
 public sealed class OutputFileNameGenerator(
     IOptions<ScannerConfiguration> options) : IOutputFileNameGenerator
@@ -27,7 +26,7 @@ public sealed class OutputFileNameGenerator(
     private static string AppendFileType(string baseName, string fileType) =>
         fileType.Equals(FileTypes.Other, StringComparison.OrdinalIgnoreCase)
             ? baseName
-            : $"{baseName}({fileType})";
+            : $"{baseName}_{fileType}";
 
     private string EnsureValidLength(string fileName) =>
         fileName.Length > _maxFileNameLength

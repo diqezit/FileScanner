@@ -1,9 +1,9 @@
-﻿// Scanning/Interfaces/IFileScanner.cs
+﻿// Scanning/Interfaces/IProjectProcessor.cs
 namespace FileScanner.Scanning.Interfaces;
 
-public interface IFileScanner
+public interface IProjectProcessor
 {
-    Task<bool> ScanDirectoryAsync(
+    Task<bool> ProcessProjectAsync(
         DirectoryPath projectRootDirectory,
         DirectoryPath outputDirectory,
         CancellationToken cancellationToken = default);

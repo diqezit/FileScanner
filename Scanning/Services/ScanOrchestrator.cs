@@ -2,12 +2,9 @@
 namespace FileScanner.Scanning.Services;
 
 public sealed class ScanOrchestrator(
-    IFileScanner fileScanner,
-    IUnifiedFileWriter unifiedFileWriter,
+    IServiceProvider serviceProvider,
     ILogger<ScanOrchestrator> logger)
 {
-    private const string OutputSubfolderName = "GeneratedProjectContent";
-
     public event EventHandler? ScanStarted;
     public event EventHandler<ScanCompletedEventArgs>? ScanCompleted;
     public event EventHandler? ScanCancelled;
@@ -15,29 +12,34 @@ public sealed class ScanOrchestrator(
 
     private CancellationTokenSource? _cancellationTokenSource;
 
-    public bool IsScanRunning => _cancellationTokenSource is { IsCancellationRequested: false };
+    public bool IsScanRunning =>
+        _cancellationTokenSource is { IsCancellationRequested: false };
 
-    public void RequestCancellation() => _cancellationTokenSource?.Cancel();
+    public void RequestCancellation() =>
+        _cancellationTokenSource?.Cancel();
 
     public async Task PerformScanAsync(
         string projectPath,
-        string baseOutputPath)
+        string baseOutputPath,
+        PostScanOptions options)
     {
         _cancellationTokenSource = new CancellationTokenSource();
+
         try
         {
             await ExecuteScanPipelineAsync(
                 new DirectoryPath(projectPath),
                 new DirectoryPath(baseOutputPath),
+                options,
                 _cancellationTokenSource.Token);
         }
         catch (OperationCanceledException)
         {
-            ScanCancelled?.Invoke(this, EventArgs.Empty);
+            HandleCancellation();
         }
         catch (Exception ex)
         {
-            ScanFailed?.Invoke(this, ex);
+            HandleFailure(ex);
         }
         finally
         {
@@ -48,52 +50,96 @@ public sealed class ScanOrchestrator(
     private async Task ExecuteScanPipelineAsync(
         DirectoryPath projectPath,
         DirectoryPath baseOutputPath,
+        PostScanOptions options,
         CancellationToken token)
     {
-        ScanStarted?.Invoke(this, EventArgs.Empty);
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        var finalOutputPath = new DirectoryPath(Path.Combine(baseOutputPath.Value, OutputSubfolderName));
+        NotifyScanStarted();
+        var stopwatch = Stopwatch.StartNew();
 
-        LogScanStart(projectPath, finalOutputPath);
+        using var scope = serviceProvider.CreateScope();
 
-        var scanSuccess = await fileScanner.ScanDirectoryAsync(
-            projectPath,
-            finalOutputPath,
+        var pipeline = CreatePipeline(scope.ServiceProvider);
+
+        LogPipelineStart(projectPath);
+
+        var result = await pipeline.ExecuteAsync(
+            projectPath.Value,
+            baseOutputPath.Value,
+            options,
             token);
 
-        token.ThrowIfCancellationRequested();
-
-        if (scanSuccess)
-            await FinalizeScanAsync(projectPath, finalOutputPath, token);
-
+        LogPipelineSteps(result);
         stopwatch.Stop();
-        ScanCompleted?.Invoke(
-            this,
-            new ScanCompletedEventArgs(stopwatch.Elapsed, finalOutputPath.Value));
+
+        ProcessPipelineResult(result, stopwatch.Elapsed);
     }
 
-    private async Task FinalizeScanAsync(
-        DirectoryPath projectPath,
-        DirectoryPath finalOutputPath,
-        CancellationToken token)
-    {
-        logger.LogInformation("Creating unified output file");
-        await unifiedFileWriter.WriteUnifiedFileAsync(
-            projectPath,
-            finalOutputPath,
-            token);
-    }
+    private void NotifyScanStarted() =>
+        ScanStarted?.Invoke(this, EventArgs.Empty);
 
-    private void LogScanStart(DirectoryPath projectPath, DirectoryPath finalOutputPath)
-    {
+    private static ScanningPipeline CreatePipeline(IServiceProvider services) =>
+        new(
+            projectProcessor: services.GetRequiredService<IProjectProcessor>(),
+            unifiedFileWriter: services.GetRequiredService<IUnifiedFileWriter>(),
+            treeGenerator: services.GetRequiredService<ITreeGenerator>(),
+            statsCalculator: services.GetRequiredService<IProjectStatisticsCalculator>(),
+            fileSplitter: services.GetRequiredService<IFileSplitter>()
+        );
+
+    private void LogPipelineStart(DirectoryPath projectPath) =>
         logger.LogInformation(
-            "Starting full scan for project: {Project}",
+            "Starting scan pipeline for project: {Project}",
             projectPath.Value);
 
-        logger.LogInformation(
-            "Final output will be in: {OutputDirectory}",
-            finalOutputPath.Value);
+    private void LogPipelineSteps(PipelineResult result)
+    {
+        foreach (var step in result.ExecutedSteps)
+            logger.LogDebug("Pipeline step: {Step}", step);
     }
+
+    private void ProcessPipelineResult(
+        PipelineResult result,
+        TimeSpan elapsed)
+    {
+        if (result.IsSuccess)
+        {
+            HandleSuccess(result, elapsed);
+        }
+        else
+        {
+            HandlePipelineError(result);
+        }
+    }
+
+    private void HandleSuccess(
+        PipelineResult result,
+        TimeSpan elapsed)
+    {
+        logger.LogInformation(
+            "Pipeline completed successfully in {Elapsed}",
+            elapsed);
+
+        ScanCompleted?.Invoke(
+            this,
+            new ScanCompletedEventArgs(
+                elapsed,
+                result.OutputDirectory!));
+    }
+
+    private void HandlePipelineError(PipelineResult result)
+    {
+        var error = new Exception(
+            $"Pipeline failed: {result.ErrorMessage}");
+
+        logger.LogError(error, "Pipeline execution failed");
+        throw error;
+    }
+
+    private void HandleCancellation() =>
+        ScanCancelled?.Invoke(this, EventArgs.Empty);
+
+    private void HandleFailure(Exception ex) =>
+        ScanFailed?.Invoke(this, ex);
 
     private void CleanupCancellationSource()
     {

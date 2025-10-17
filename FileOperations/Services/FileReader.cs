@@ -12,33 +12,59 @@ public sealed class FileReader(
         DirectoryPath rootPath,
         CancellationToken cancellationToken)
     {
-        var relativePath = new RelativePath(Path.GetRelativePath(rootPath.Value, filePath.Value));
+        var relativePath = new RelativePath(
+            Path.GetRelativePath(rootPath.Value, filePath.Value));
 
-        if (!IsFileValidForReading(filePath, out var validationError))
+        // Use discard '_' for the unused fileInfo out parameter to fix IDE0059
+        if (!TryGetValidFileInfo(filePath, out _, out var validationError))
             return CreateErrorContent(relativePath, validationError);
 
-        var (success, content, readError) = await TryReadContentAsync(filePath, cancellationToken);
+        var (success, content, readError) = await TryReadContentAsync(
+            filePath, cancellationToken);
+
         if (!success)
             return CreateErrorContent(relativePath, readError!);
 
         return new FileContent(relativePath, content!, true);
     }
 
-    private bool IsFileValidForReading(FilePath filePath, out string errorMessage)
+    // Pre-checks file metadata
+    // avoids reading invalid or large files
+    private bool TryGetValidFileInfo(
+        FilePath filePath,
+        out FileInfo? fileInfo,
+        out string errorMessage)
     {
-        var fileInfo = new FileInfo(filePath.Value);
-        if (!CheckFileExists(fileInfo, out errorMessage)) return false;
-        if (!CheckFileSize(fileInfo, out errorMessage)) return false;
-        return true;
+        fileInfo = null;
+        try
+        {
+            var info = new FileInfo(filePath.Value);
+
+            if (!FileExists(info, out errorMessage)) return false;
+            if (!FileSizeIsAllowed(info, out errorMessage)) return false;
+
+            fileInfo = info;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            // file system access can fail for many reasons
+            logger.LogWarning(ex, "Validation failed for file: {File}", filePath.Value);
+            errorMessage = $"File system error: {ex.Message}";
+            return false;
+        }
     }
 
+    // Isolates file system IO
+    // handles read errors gracefully
     private async Task<(bool Success, string? Content, string? ErrorMessage)> TryReadContentAsync(
         FilePath filePath,
         CancellationToken cancellationToken)
     {
         try
         {
-            var content = await File.ReadAllTextAsync(filePath.Value, Encoding.UTF8, cancellationToken);
+            var content = await File.ReadAllTextAsync(
+                filePath.Value, Encoding.UTF8, cancellationToken);
             return (true, content, null);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -48,7 +74,7 @@ public sealed class FileReader(
         }
     }
 
-    private static bool CheckFileExists(FileInfo fileInfo, out string errorMessage)
+    private static bool FileExists(FileInfo fileInfo, out string errorMessage)
     {
         errorMessage = string.Empty;
         if (!fileInfo.Exists)
@@ -59,17 +85,22 @@ public sealed class FileReader(
         return true;
     }
 
-    private bool CheckFileSize(FileInfo fileInfo, out string errorMessage)
+    // File size limit protects against memory issues
+    // and excessively large outputs
+    private bool FileSizeIsAllowed(FileInfo fileInfo, out string errorMessage)
     {
         errorMessage = string.Empty;
         if (fileInfo.Length > _maxFileSize)
         {
-            errorMessage = $"File too large: {fileInfo.Length:N0} bytes";
+            errorMessage = $"File is too large ({UIHelper.FormatFileSize(fileInfo.Length)})";
             return false;
         }
         return true;
     }
 
-    private static FileContent CreateErrorContent(RelativePath relativePath, string error) =>
-        new(relativePath, $"// {error}", false);
+    private static FileContent CreateErrorContent(RelativePath relativePath, string reason)
+    {
+        var errorText = $"// ERROR: File skipped. Reason: {reason}";
+        return new FileContent(relativePath, errorText, false, reason);
+    }
 }

@@ -17,6 +17,7 @@ public sealed record ScannerConfiguration
     public int MaxRetries { get; init; } = 3;
     public int RetryDelayMs { get; init; } = 100;
     public int MaxParallelism { get; init; } = 0;
+    public int DefaultChunkSize { get; init; } = 100000;
 
     public static ScannerConfiguration Default => new()
     {
@@ -24,25 +25,54 @@ public sealed record ScannerConfiguration
 
         IgnoredExtensions =
         [
+            // Standard binaries and artifacts
             ".exe", ".dll", ".pdb", ".obj", ".o", ".a", ".lib", ".so", ".dylib", ".jar", ".class", ".pyc",
             ".cache", ".binlog", ".buildlog", ".tlog", ".suo", ".user", ".DS_Store",
+            
+            // Generated code files
             ".designer.cs", ".generated.cs", ".g.cs", ".g.i.cs", ".xaml.g.cs",
+            
+            // Media files
             ".ico", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp", ".psd", ".ai",
             ".mp3", ".mp4", ".wav", ".avi", ".mov", ".mkv", ".flv",
+            
+            // Database files
             ".db", ".sqlite", ".sqlite3", ".mdb", ".accdb",
+            
+            // Compressed archives
             ".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz", ".pkg",
+            
+            // Backup and temp files
             ".bak", ".tmp", ".temp", ".log", ".swp", "~",
+            
+            // NuGet packages
             ".nupkg", ".snupkg", ".nuspec",
-            ".pfx", ".snk", ".cer", ".crt", ".key", ".pem", ".jks"
+            
+            // Security and certificates
+            ".pfx", ".snk", ".cer", ".crt", ".key", ".pem", ".jks",
+            
+            // Visual Studio specific locked files (from logs)
+            ".vsidx", ".db-shm", ".db-wal"
         ],
 
         IgnoredDirectories =
         [
+            // Standard build output directories
             "bin", "obj", "out", "build", "dist", "target", "x64",
+            
+            // Version control systems
             ".git", ".svn", ".hg", ".idea",
+            
+            // IDE-specific metadata
             ".vs", ".vscode", ".rider",
+            
+            // Package manager caches
             "node_modules", "bower_components", "vendor", "packages", "Pods", "Carthage",
+            
+            // Python virtual environments
             "venv", ".venv", "env", ".env", "__pycache__",
+            
+            // Test and temp folders
             "TestResults", "$RECYCLE.BIN", "System Volume Information", "tmp", "temp",
             "GeneratedProjectContent", "coverage"
         ],
@@ -162,7 +192,7 @@ public sealed record ScannerConfiguration
         // Scientific & Stats
         [".r"] = FileTypes.RLang,
         [".jl"] = FileTypes.Julia,
-        [".m"] = FileTypes.Matlab, // Note: conflicts with Objective-C, filename check needed if specific
+        [".m"] = FileTypes.Matlab,
 
         // Documentation
         [".txt"] = FileTypes.Text,

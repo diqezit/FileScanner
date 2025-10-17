@@ -1,8 +1,13 @@
-﻿namespace FileScanner.Configuration.Services;
+﻿// Configuration/Services/UserSettingsService.cs
+namespace FileScanner.Configuration.Services;
 
-public sealed class UserSettingsService(ILogger<UserSettingsService> logger) : IUserSettingsService
+public sealed class UserSettingsService(
+    ISettingsPathProvider pathProvider,
+    ILogger<UserSettingsService> logger) : IUserSettingsService
 {
-    private readonly string _settingsPath = GetSettingsPath();
+    // Path is determined by an external provider, not hardcoded here
+    // This allows changing storage location without altering this service
+    private readonly string _settingsPath = pathProvider.GetSettingsFilePath();
     private readonly ILogger<UserSettingsService> _logger = logger;
     private static readonly JsonSerializerOptions _jsonOptions = new() { WriteIndented = true };
 
@@ -19,6 +24,7 @@ public sealed class UserSettingsService(ILogger<UserSettingsService> logger) : I
         catch (Exception ex)
         {
             LogLoadError(ex);
+            // Return empty settings on failure so the app can start
             return new UserSettings();
         }
     }
@@ -27,32 +33,14 @@ public sealed class UserSettingsService(ILogger<UserSettingsService> logger) : I
     {
         try
         {
-            EnsureDirectoryExists();
             var json = SerializeSettings(settings);
             File.WriteAllText(_settingsPath, json);
         }
         catch (Exception ex)
         {
+            // Saving settings is non-critical, log a warning but don't crash
             LogSaveError(ex);
         }
-    }
-
-    private static string GetSettingsPath()
-    {
-        var appDataPath = Environment.GetFolderPath(
-            Environment.SpecialFolder.ApplicationData);
-
-        return Path.Combine(
-            appDataPath,
-            "FileScanner",
-            "settings.json");
-    }
-
-    private void EnsureDirectoryExists()
-    {
-        var directory = Path.GetDirectoryName(_settingsPath);
-        if (!string.IsNullOrEmpty(directory))
-            Directory.CreateDirectory(directory);
     }
 
     private static UserSettings DeserializeSettings(string json) =>

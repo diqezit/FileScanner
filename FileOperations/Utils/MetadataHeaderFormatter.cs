@@ -1,10 +1,9 @@
 ﻿// FileOperations/Utils/MetadataHeaderFormatter.cs
 namespace FileScanner.FileOperations.Utils;
 
-// Formats the metadata block for the unified project report
 internal static class MetadataHeaderFormatter
 {
-    private const string Separator = "// ========================================";
+    private const string Separator = "// =-=-=-=-=-=-=-=-=-=-=";
 
     public static string Format(string tree, ProjectStatistics stats)
     {
@@ -33,12 +32,11 @@ internal static class MetadataHeaderFormatter
     {
         sb.AppendLine($"// {title}:");
 
-        // Indent content for better readability within the header
         using var reader = new StringReader(content);
         string? line;
         while ((line = reader.ReadLine()) is not null)
         {
-            sb.AppendLine($"// {line}");
+            sb.AppendLine($"// {line.Replace('\\', '/')}");
         }
         sb.AppendLine();
     }

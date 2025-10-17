@@ -9,4 +9,9 @@ public interface IFileReader
         CancellationToken cancellationToken);
 }
 
-public record FileContent(RelativePath RelativePath, string Content, bool IsSuccess);
+public record FileContent(
+    RelativePath RelativePath,
+    string Content,
+    bool IsSuccess,
+    string? ErrorReason = null
+);
