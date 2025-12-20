@@ -54,7 +54,8 @@ public sealed record ScannerConfiguration
             ".git", ".svn", ".hg", ".idea", ".vs", ".vscode",
             "node_modules", "packages", "vendor",
             "venv", ".venv", "__pycache__",
-            "TestResults", "GeneratedProjectContent", "coverage"
+            "TestResults", "GeneratedProjectContent", "coverage",
+            "Migrations",
         },
         TypeMap = new(StringComparer.OrdinalIgnoreCase)
         {

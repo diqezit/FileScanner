@@ -96,7 +96,6 @@ public sealed class ScanEngine(
         log.LogInformation("Creating unified...");
         await fs.WriteUnifiedAsync(outDir, header, ct);
 
-        // Split если включено
         if (opt.Split && opt.ChunkSize > 0)
         {
             var unifiedPath = Path.Combine(outDir, "_United_All_Files.txt");
